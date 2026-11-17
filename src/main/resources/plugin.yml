@@ -1,0 +1,20 @@
+name: DaGa
+version: '1.0.0'
+main: vn.daga.DaGaPlugin
+api-version: '1.21'
+author: you
+softdepend: [Vault]
+description: Plugin đá gà, chăm gà, ấp trứng, ghép gen
+
+commands:
+  daga:
+    description: Lệnh chính của plugin đá gà
+    usage: /daga giup
+
+permissions:
+  daga.use:
+    description: Dùng các lệnh đá gà
+    default: true
+  daga.admin:
+    description: Quản trị đá gà
+    default: op

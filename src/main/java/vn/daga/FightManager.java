@@ -1,0 +1,261 @@
+package vn.daga;
+
+import org.bukkit.Bukkit;
+import org.bukkit.Sound;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.scheduler.BukkitTask;
+
+import java.util.*;
+
+public class FightManager {
+    private record Challenge(UUID from, double bet) {}
+
+    private static final String[] VERBS = {"mổ", "đá", "quắp", "đạp cựa vào", "xông vào mổ"};
+
+    private final DaGaPlugin plugin;
+    private final Random rnd;
+    private final Map<UUID, Challenge> pending = new HashMap<>();
+    private final Map<UUID, Match> active = new HashMap<>();
+
+    public FightManager(DaGaPlugin plugin) {
+        this.plugin = plugin;
+        this.rnd = plugin.rnd();
+    }
+
+    public boolean inMatch(Player p) {
+        return active.containsKey(p.getUniqueId());
+    }
+
+    private ChickenData chickenOf(Player p) {
+        ChickenData d = ChickenData.fromItem(p.getInventory().getItemInMainHand());
+        if (d != null) d.refresh();
+        return d;
+    }
+
+    private String check(ChickenData d, String who) {
+        if (d == null) return who + " chưa cầm gà chiến ở tay chính.";
+        if (d.injured()) return "Gà của " + who + " đang bị thương.";
+        if (d.sta < 20) return "Gà của " + who + " quá mệt (cần ít nhất 20 thể lực).";
+        if (d.hunger < 10) return "Gà của " + who + " đang quá đói.";
+        return null;
+    }
+
+    public void challenge(Player from, Player to, double bet) {
+        if (from.equals(to)) { Msg.send(from, "&cKhông thể tự thách đấu chính mình."); return; }
+        if (inMatch(from) || inMatch(to)) { Msg.send(from, "&cMột trong hai người đang trong trận."); return; }
+        String err = check(chickenOf(from), "bạn");
+        if (err != null) { Msg.send(from, "&c" + err); return; }
+        if (bet > 0) {
+            VaultHook h = plugin.hook();
+            if (h == null) { Msg.send(from, "&cServer chưa có economy (Vault), chỉ đấu không cược được."); return; }
+            double min = plugin.getConfig().getDouble("bet.min", 100);
+            double max = plugin.getConfig().getDouble("bet.max", 1000000);
+            if (bet < min || bet > max) { Msg.send(from, "&cTiền cược phải từ " + min + " đến " + max + "."); return; }
+            if (!h.has(from, bet)) { Msg.send(from, "&cBạn không đủ tiền cược."); return; }
+        }
+        Challenge ch = new Challenge(from.getUniqueId(), bet);
+        pending.put(to.getUniqueId(), ch);
+        Msg.send(from, "&eĐã gửi thách đấu tới &f" + to.getName() + (bet > 0 ? " &evới cược &6" + bet : "") + "&e.");
+        Msg.send(to, "&f" + from.getName() + " &ethách đấu gà" + (bet > 0 ? " với cược &6" + bet : "")
+                + "&e! Cầm gà tay chính rồi gõ &a/daga chapnhan &ehoặc &c/daga tuchoi&e.");
+        long timeout = plugin.getConfig().getLong("challenge-timeout-seconds", 30) * 20L;
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (pending.get(to.getUniqueId()) == ch) {
+                pending.remove(to.getUniqueId());
+                Msg.send(from, "&7Lời thách đấu tới " + to.getName() + " đã hết hạn.");
+            }
+        }, timeout);
+    }
+
+    public void decline(Player b) {
+        Challenge ch = pending.remove(b.getUniqueId());
+        if (ch == null) { Msg.send(b, "&cBạn không có lời thách đấu nào."); return; }
+        Player a = Bukkit.getPlayer(ch.from());
+        if (a != null) Msg.send(a, "&f" + b.getName() + " &cđã từ chối thách đấu.");
+        Msg.send(b, "&7Đã từ chối.");
+    }
+
+    public void accept(Player b) {
+        Challenge ch = pending.remove(b.getUniqueId());
+        if (ch == null) { Msg.send(b, "&cBạn không có lời thách đấu nào."); return; }
+        Player a = Bukkit.getPlayer(ch.from());
+        if (a == null || !a.isOnline()) { Msg.send(b, "&cNgười thách đấu đã thoát game."); return; }
+        if (inMatch(a) || inMatch(b)) { Msg.send(b, "&cMột trong hai người đang trong trận."); return; }
+        ChickenData ca = chickenOf(a), cb = chickenOf(b);
+        String err = check(ca, a.getName());
+        if (err == null) err = check(cb, "bạn");
+        if (err != null) { Msg.send(b, "&c" + err); Msg.send(a, "&c" + err); return; }
+        double bet = ch.bet();
+        if (bet > 0) {
+            VaultHook h = plugin.hook();
+            if (h == null || !h.has(a, bet) || !h.has(b, bet)) {
+                Msg.send(b, "&cMột trong hai người không đủ tiền cược."); Msg.send(a, "&cMột trong hai người không đủ tiền cược.");
+                return;
+            }
+            if (!h.withdraw(a, bet)) { Msg.send(b, "&cKhông trừ được tiền của " + a.getName()); return; }
+            if (!h.withdraw(b, bet)) { h.deposit(a, bet); Msg.send(b, "&cKhông trừ được tiền của bạn."); return; }
+        }
+        Match m = new Match(a, b, ca, cb, bet);
+        active.put(a.getUniqueId(), m);
+        active.put(b.getUniqueId(), m);
+        m.start();
+    }
+
+    public void onQuit(Player q) {
+        pending.remove(q.getUniqueId());
+        pending.values().removeIf(c -> c.from().equals(q.getUniqueId()));
+        Match m = active.get(q.getUniqueId());
+        if (m != null) m.finish(m.p[0].equals(q) ? 1 : 0, true);
+    }
+
+    public void shutdown() {
+        Set<Match> ms = new HashSet<>(active.values());
+        for (Match m : ms) m.abort();
+        active.clear();
+    }
+
+    private class Match {
+        final Player[] p = new Player[2];
+        final ChickenData[] c = new ChickenData[2];
+        final double[] hp = new double[2];
+        final double[] max = new double[2];
+        final double bet;
+        int round = 0;
+        boolean over = false;
+        BukkitTask task;
+
+        Match(Player a, Player b, ChickenData ca, ChickenData cb, double bet) {
+            p[0] = a; p[1] = b; c[0] = ca; c[1] = cb;
+            this.bet = bet;
+            for (int i = 0; i < 2; i++) { max[i] = c[i].st[ChickenData.HP]; hp[i] = max[i]; }
+        }
+
+        void say(String m) {
+            for (Player x : p) Msg.raw(x, m);
+        }
+
+        void start() {
+            say("&6&l=== TRẬN ĐÁ GÀ ===");
+            say(p[0].getName() + " &7(" + c[0].rarity.color + c[0].name + "&7) &cVS &f" + p[1].getName()
+                    + " &7(" + c[1].rarity.color + c[1].name + "&7)");
+            if (bet > 0) say("&7Tiền cược mỗi bên: &6" + bet);
+            for (Player x : p) x.playSound(x.getLocation(), Sound.ENTITY_CHICKEN_AMBIENT, 1f, 0.8f);
+            long delay = plugin.getConfig().getLong("fight.round-delay-ticks", 50L);
+            task = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 40L, delay);
+        }
+
+        void tick() {
+            if (over) return;
+            for (Player x : p) {
+                if (!x.isOnline()) { finish(x.equals(p[0]) ? 1 : 0, true); return; }
+            }
+            round++;
+            say("&8—— &eHiệp " + round + " &8——");
+            double sa = c[0].st[ChickenData.SPD] * (0.8 + rnd.nextDouble() * 0.4);
+            double sb = c[1].st[ChickenData.SPD] * (0.8 + rnd.nextDouble() * 0.4);
+            int first = sa >= sb ? 0 : 1;
+            strike(first);
+            if (hp[1 - first] > 0) strike(1 - first);
+            say("&7" + c[0].name + " " + bar(0) + " &8| &7" + c[1].name + " " + bar(1));
+            if (hp[0] <= 0 || hp[1] <= 0) {
+                finish(hp[0] <= 0 ? 1 : 0, false);
+            } else if (round >= plugin.getConfig().getInt("fight.max-rounds", 30)) {
+                finish(hp[0] / max[0] >= hp[1] / max[1] ? 0 : 1, false);
+            }
+        }
+
+        void strike(int i) {
+            int j = 1 - i;
+            ChickenData at = c[i], df = c[j];
+            double dodge = clamp(0.06 + (df.st[ChickenData.SPD] - at.st[ChickenData.SPD]) * 0.008
+                    + df.st[ChickenData.LUCK] * 0.002, 0.03, 0.35);
+            if (rnd.nextDouble() < dodge) {
+                say("&e" + at.name + " &7ra đòn trượt, &e" + df.name + " &7né được!");
+                return;
+            }
+            double dmg = at.effAtk() * (0.8 + rnd.nextDouble() * 0.4) - df.effDef() * 0.4;
+            boolean crit = rnd.nextDouble() < clamp(0.05 + at.st[ChickenData.LUCK] * 0.004, 0.05, 0.4);
+            if (crit) dmg *= 1.6;
+            long d = Math.max(1, Math.round(dmg));
+            hp[j] = Math.max(0, hp[j] - d);
+            say("&e" + at.name + " &7" + VERBS[rnd.nextInt(VERBS.length)] + " &e" + df.name + " &c-" + d + (crit ? " &6&lCHÍ MẠNG!" : ""));
+            for (Player x : p) x.playSound(x.getLocation(), Sound.ENTITY_CHICKEN_HURT, 1f, crit ? 0.7f : 1.1f);
+        }
+
+        String bar(int i) {
+            int filled = (int) Math.round(10 * hp[i] / max[i]);
+            StringBuilder sb = new StringBuilder("&a");
+            for (int k = 0; k < 10; k++) {
+                if (k == filled) sb.append("&8");
+                sb.append("█");
+            }
+            return sb + " &f" + (int) hp[i];
+        }
+
+        void finish(int w, boolean forfeit) {
+            if (over) return;
+            over = true;
+            if (task != null) task.cancel();
+            active.remove(p[0].getUniqueId());
+            active.remove(p[1].getUniqueId());
+            int l = 1 - w;
+            double prize = 0;
+            VaultHook h = plugin.hook();
+            if (bet > 0 && h != null) {
+                double pot = bet * 2;
+                double tax = pot * plugin.getConfig().getDouble("tax-percent", 5) / 100.0;
+                prize = pot - tax;
+                h.deposit(p[w], prize);
+            }
+            say("&6&l★ " + p[w].getName() + " THẮNG" + (forfeit ? " &7(đối thủ bỏ cuộc)" : "") + " &6&l★");
+            if (prize > 0) Msg.raw(p[w], Msg.PREFIX + "&aBạn nhận được &6" + prize + " &7(đã trừ thuế sàn).");
+            apply(p[w], c[w], true);
+            apply(p[l], c[l], false);
+            plugin.store().addResult(p[w].getUniqueId(), p[w].getName(), true, prize);
+            plugin.store().addResult(p[l].getUniqueId(), p[l].getName(), false, 0);
+            p[w].playSound(p[w].getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 1f);
+            if (rnd.nextDouble() < plugin.getConfig().getDouble("win-egg-chance", 0.08)) {
+                DaGaPlugin.give(p[w], Eggs.wild(1));
+                Msg.send(p[w], "&5Phần thưởng hiếm: bạn nhận được 1 Trứng Cổ Đại!");
+            }
+        }
+
+        void abort() {
+            if (over) return;
+            over = true;
+            if (task != null) task.cancel();
+            if (bet > 0 && plugin.hook() != null) {
+                plugin.hook().deposit(p[0], bet);
+                plugin.hook().deposit(p[1], bet);
+            }
+            say("&cTrận đấu bị hủy do server dừng, đã hoàn tiền cược.");
+        }
+    }
+
+    private void apply(Player pl, ChickenData snap, boolean win) {
+        ItemStack[] contents = pl.getInventory().getContents();
+        for (int i = 0; i < contents.length; i++) {
+            ChickenData d = ChickenData.fromItem(contents[i]);
+            if (d == null || !d.id.equals(snap.id)) continue;
+            d.refresh();
+            d.sta = Math.max(0, d.sta - (win ? 15 : 35));
+            d.hunger = Math.max(0, d.hunger - 10);
+            if (win) {
+                d.wins++;
+            } else {
+                d.losses++;
+                if (rnd.nextDouble() < plugin.getConfig().getDouble("injury.chance", 0.35)) {
+                    d.injuredUntil = System.currentTimeMillis() + plugin.getConfig().getLong("injury.minutes", 10) * 60000L;
+                    Msg.send(pl, "&cGà của bạn bị thương! Dùng &e/daga chua &c(cần 1 cà rốt vàng).");
+                }
+            }
+            pl.getInventory().setItem(i, d.toItem());
+            return;
+        }
+    }
+
+    private static double clamp(double v, double lo, double hi) {
+        return Math.max(lo, Math.min(hi, v));
+    }
+}

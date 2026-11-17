@@ -1,0 +1,40 @@
+# ===== CẤU HÌNH ĐÁ GÀ =====
+bet:
+  min: 100
+  max: 1000000
+tax-percent: 5                  # % thuế sàn trừ trên tổng tiền cược
+challenge-timeout-seconds: 30
+
+fight:
+  max-rounds: 30
+  round-delay-ticks: 50         # 20 tick = 1 giây
+injury:
+  chance: 0.35                  # tỉ lệ gà thua bị thương
+  minutes: 10
+win-egg-chance: 0.08            # tỉ lệ người thắng nhận trứng cổ đại
+
+training-cooldown-seconds: 30
+rest-cooldown-seconds: 120
+breed-cooldown-minutes: 30
+mutation-chance: 0.06           # đột biến khi ghép gen
+full-moon-mutation-multiplier: 3
+
+incubator-slots: 2
+hatch-time-multiplier: 1.0
+campfire-hatch-speedup: 0.3     # đứng gần lửa trại (bán kính 5) ấp nhanh hơn 30%
+
+drops:
+  mob-egg-chance: 0.015         # quái chết rơi trứng bí ẩn
+  fishing-egg-chance: 0.03      # câu cá ra trứng bí ẩn
+  loot-egg-chance: 0.25         # rương hầm ngục/kho báu có trứng cổ đại
+  boss-egg-bonus: 2             # boss rơi trứng, cấp thưởng cao
+
+wild-chicken:
+  variant-chance: 0.2           # tỉ lệ gà sinh ra ở biome đặc biệt là gà hoang
+  tame-chance: 0.45
+
+rarity-weights:
+  thuong: 55
+  kha: 28
+  hiem: 14
+  huyen-thoai: 3
