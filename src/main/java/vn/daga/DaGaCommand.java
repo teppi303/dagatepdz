@@ -15,7 +15,7 @@ import java.util.*;
 
 public class DaGaCommand implements CommandExecutor, TabCompleter {
     private static final List<String> SUBS = List.of("giup", "xem", "cho", "tap", "nghi", "chua", "ghep", "doiten",
-            "ap", "nhan", "thachdau", "chapnhan", "tuchoi", "top");
+            "ap", "nhan", "thachdau", "chapnhan", "tuchoi", "top", "hoisinh", "setarena");
 
     private final DaGaPlugin pl;
     private final Map<UUID, Long> trainCd = new HashMap<>();
@@ -53,6 +53,8 @@ public class DaGaCommand implements CommandExecutor, TabCompleter {
             case "chapnhan" -> pl.fights().accept(p);
             case "tuchoi" -> pl.fights().decline(p);
             case "top" -> top(p);
+            case "hoisinh" -> revive(p);
+            case "setarena" -> setArena(p);
             default -> help(p);
         }
         return true;
@@ -66,11 +68,12 @@ public class DaGaCommand implements CommandExecutor, TabCompleter {
                 "&e/daga tap &7- huấn luyện, tăng chỉ số (tốn thể lực)",
                 "&e/daga nghi &7- cho gà nghỉ (đứng gần bó rơm = chuồng gà, hồi nhiều hơn)",
                 "&e/daga chua &7- chữa gà bị thương (tốn 1 cà rốt vàng)",
+                "&e/daga hoisinh &7- hồi sinh ngay gà đã chết (tốn 1 táo vàng)",
                 "&e/daga ghep &7- ghép gen: gà tay chính + gà tay phụ ra trứng gà lai",
                 "&e/daga doiten <tên> &7- đổi tên gà",
                 "&e/daga ap &7- ấp trứng đang cầm | &e/daga nhan &7- nhận gà đã nở / xem tiến độ",
                 "&e/daga thachdau <người> [tiền] &7- thách đấu | &e/daga chapnhan &7| &e/daga tuchoi",
-                "&e/daga top &7- bảng xếp hạng",
+                "&e/daga top &7- bảng xếp hạng | &e/daga setarena &7- (admin) đặt sàn đấu",
                 "&7Kiếm gà: trứng rơi từ quái/boss, câu cá, rương hầm ngục, thuần gà hoang ở biome tuyết/sa mạc/nấm."
         };
         for (String x : l) Msg.raw(p, x);
@@ -151,6 +154,7 @@ public class DaGaCommand implements CommandExecutor, TabCompleter {
         long cd = pl.getConfig().getLong("training-cooldown-seconds", 30) * 1000L;
         long last = trainCd.getOrDefault(p.getUniqueId(), 0L);
         if (now - last < cd) { Msg.send(p, "&cĐợi thêm " + ((cd - (now - last)) / 1000 + 1) + " giây."); return; }
+        if (isDead(p, d)) return;
         if (d.injured()) { Msg.send(p, "&cGà đang bị thương, hãy chữa trước."); return; }
         if (d.sta < 20) { Msg.send(p, "&cGà quá mệt, cho nghỉ đã (/daga nghi)."); return; }
         if (d.hunger < 20) { Msg.send(p, "&cGà đói quá, cho ăn đã (/daga cho)."); return; }
@@ -171,6 +175,7 @@ public class DaGaCommand implements CommandExecutor, TabCompleter {
         if (busy(p)) return;
         ChickenData d = main(p);
         if (d == null) return;
+        if (isDead(p, d)) return;
         long now = System.currentTimeMillis();
         long cd = pl.getConfig().getLong("rest-cooldown-seconds", 120) * 1000L;
         long last = restCd.getOrDefault(p.getUniqueId(), 0L);
@@ -207,6 +212,41 @@ public class DaGaCommand implements CommandExecutor, TabCompleter {
         Msg.send(p, "&aĐã đổi tên gà thành &f" + n);
     }
 
+    private boolean isDead(Player p, ChickenData d) {
+        if (!d.dead()) return false;
+        Msg.send(p, "&cGà đã chết, còn ~" + ((d.deadUntil - System.currentTimeMillis()) / 60000L + 1)
+                + " phút nữa hồi sinh (hoặc /daga hoisinh với 1 táo vàng).");
+        return true;
+    }
+
+    private void revive(Player p) {
+        ChickenData d = main(p);
+        if (d == null) return;
+        if (!d.dead()) { Msg.send(p, "&eGà vẫn còn sống."); return; }
+        Map<Integer, ItemStack> left = p.getInventory().removeItem(new ItemStack(Material.GOLDEN_APPLE, 1));
+        if (!left.isEmpty()) { Msg.send(p, "&cCần 1 táo vàng trong túi để hồi sinh ngay."); return; }
+        long weakMin = pl.getConfig().getLong("death.weak-minutes", 10);
+        d.deadUntil = 0;
+        d.weakUntil = System.currentTimeMillis() + weakMin * 60000L;
+        d.sta = Math.max(d.sta, 20);
+        d.hunger = Math.max(d.hunger, 30);
+        save(p, d);
+        Msg.send(p, "&aGà đã hồi sinh! Nhưng còn yếu " + weakMin + " phút (chỉ số giảm 20%).");
+    }
+
+    private void setArena(Player p) {
+        if (!p.hasPermission("daga.admin")) { Msg.send(p, "&cBạn không có quyền."); return; }
+        Location l = p.getLocation();
+        pl.getConfig().set("arena.world", l.getWorld().getName());
+        pl.getConfig().set("arena.x", l.getX());
+        pl.getConfig().set("arena.y", l.getY());
+        pl.getConfig().set("arena.z", l.getZ());
+        pl.saveConfig();
+        Msg.send(p, "&aĐã đặt tâm sàn đấu tại chỗ bạn đứng. Hai gà sẽ đứng cách nhau 3 block theo trục X, "
+                + "người chơi được dịch chuyển tới cách tâm 4 block theo X và 5 block về phía Z âm, rồi tự về lại sau trận. "
+                + "Hãy dọn trống/xây sàn quanh đó. Muốn bỏ sàn đấu thì xóa mục 'arena' trong config.yml.");
+    }
+
     // ---------- ghép gen ----------
     private void breed(Player p) {
         if (busy(p)) return;
@@ -218,6 +258,7 @@ public class DaGaCommand implements CommandExecutor, TabCompleter {
         a.refresh(); b.refresh();
         long now = System.currentTimeMillis();
         for (ChickenData d : new ChickenData[]{a, b}) {
+            if (d.dead()) { Msg.send(p, "&c" + d.name + " đã chết, chưa ghép được."); return; }
             if (d.injured()) { Msg.send(p, "&c" + d.name + " đang bị thương."); return; }
             if (d.sta < 50 || d.hunger < 50) { Msg.send(p, "&c" + d.name + " cần thể lực và độ no từ 50 trở lên."); return; }
             if (d.breedReady > now) {

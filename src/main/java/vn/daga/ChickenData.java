@@ -38,6 +38,9 @@ public class ChickenData {
     public int wins, losses, gen = 1;
     public long injuredUntil = 0;
     public long breedReady = 0;
+    public long deadUntil = 0;
+    public long weakUntil = 0;
+    public static final double WEAK = 0.8;
 
     public static String randomName(Random rnd) {
         return "Gà " + NAMES[rnd.nextInt(NAMES.length)];
@@ -95,13 +98,37 @@ public class ChickenData {
         return true;
     }
 
+    public boolean dead() {
+        return deadUntil > System.currentTimeMillis();
+    }
+
+    public boolean weak() {
+        return weakUntil > System.currentTimeMillis();
+    }
+
+    private double wk() {
+        return weak() ? WEAK : 1.0;
+    }
+
+    public double fightHp() {
+        return st[HP] * wk();
+    }
+
+    public double spd() {
+        return st[SPD] * wk();
+    }
+
+    public double luck() {
+        return st[LUCK] * wk();
+    }
+
     public double effAtk() {
-        double v = st[ATK] + spur * 2;
+        double v = (st[ATK] + spur * 2) * wk();
         return hunger < 30 ? v * 0.85 : v;
     }
 
     public double effDef() {
-        return st[DEF] + comb * 2;
+        return (st[DEF] + comb * 2) * wk();
     }
 
     public boolean injured() {
@@ -130,7 +157,7 @@ public class ChickenData {
                 "st=" + st[0] + "," + st[1] + "," + st[2] + "," + st[3] + "," + st[4],
                 "ms=" + maxSta, "s=" + sta, "ss=" + staStamp, "h=" + hunger, "hs=" + hungerStamp,
                 "c=" + color, "sp=" + spur, "cb=" + comb, "w=" + wins, "l=" + losses, "g=" + gen,
-                "inj=" + injuredUntil, "br=" + breedReady);
+                "inj=" + injuredUntil, "br=" + breedReady, "du=" + deadUntil, "wu=" + weakUntil);
     }
 
     public static ChickenData parse(String raw) {
@@ -161,6 +188,8 @@ public class ChickenData {
                     case "g" -> c.gen = Integer.parseInt(v);
                     case "inj" -> c.injuredUntil = Long.parseLong(v);
                     case "br" -> c.breedReady = Long.parseLong(v);
+                    case "du" -> c.deadUntil = Long.parseLong(v);
+                    case "wu" -> c.weakUntil = Long.parseLong(v);
                     default -> { }
                 }
             }
@@ -184,6 +213,13 @@ public class ChickenData {
         l.add("&bTốc độ &f" + st[SPD] + " &8| &dMay mắn &f" + st[LUCK]);
         l.add("&aThể lực &f" + sta + "/" + maxSta + " &8| &eNo &f" + hunger + "/100");
         l.add("&7Thắng/Thua: &a" + wins + "&7/&c" + losses);
+        if (dead()) {
+            long left = (deadUntil - System.currentTimeMillis()) / 60000L + 1;
+            l.add("&4&l☠ ĐÃ CHẾT &7- hồi sinh sau ~" + left + " phút (hoặc /daga hoisinh)");
+        } else if (weak()) {
+            long left = (weakUntil - System.currentTimeMillis()) / 60000L + 1;
+            l.add("&5Còn yếu sau khi hồi sinh (~" + left + " phút), chỉ số giảm 20%");
+        }
         if (injured()) {
             long left = (injuredUntil - System.currentTimeMillis()) / 60000L + 1;
             l.add("&4Đang bị thương (~" + left + " phút) &7- dùng /daga chua");
@@ -194,7 +230,7 @@ public class ChickenData {
     public ItemStack toItem() {
         ItemStack it = new ItemStack(Material.CHICKEN_SPAWN_EGG);
         ItemMeta m = it.getItemMeta();
-        m.displayName(Msg.c(rarity.color + "&l" + name));
+        m.displayName(Msg.c(dead() ? "&8&l☠ " + name + " &8(đã chết)" : rarity.color + "&l" + name));
         List<net.kyori.adventure.text.Component> lore = new ArrayList<>();
         for (String s : infoLines()) lore.add(Msg.c(s));
         lore.add(Msg.c("&8ID: " + id));

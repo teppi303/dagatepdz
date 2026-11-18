@@ -10,6 +10,7 @@ import java.util.Random;
 
 public class DaGaPlugin extends JavaPlugin {
     public static NamespacedKey WILD_KEY;
+    public static NamespacedKey FIGHT_KEY;
 
     private VaultHook hook;
     private DataStore store;
@@ -22,6 +23,7 @@ public class DaGaPlugin extends JavaPlugin {
         ChickenData.KEY = new NamespacedKey(this, "chicken");
         Eggs.KEY = new NamespacedKey(this, "egg");
         WILD_KEY = new NamespacedKey(this, "wild");
+        FIGHT_KEY = new NamespacedKey(this, "fight");
 
         hook = VaultHook.create();
         if (hook == null) getLogger().warning("Không thấy Vault/economy: tính năng cược tiền sẽ tắt.");

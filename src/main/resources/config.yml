@@ -38,3 +38,8 @@ rarity-weights:
   kha: 28
   hiem: 14
   huyen-thoai: 3
+
+death:
+  respawn-minutes: 15           # gà chết phải chờ bao lâu mới hồi sinh
+  weak-minutes: 10              # sau hồi sinh còn yếu (chỉ số giảm 20%) bao lâu
+# arena: đặt bằng lệnh /daga setarena (không đặt thì gà đấu ngay trước mặt người chấp nhận)

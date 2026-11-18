@@ -48,6 +48,11 @@ public class WorldListener implements Listener {
     @EventHandler
     public void onDeath(EntityDeathEvent e) {
         LivingEntity v = e.getEntity();
+        if (v.getPersistentDataContainer().has(DaGaPlugin.FIGHT_KEY, PersistentDataType.BYTE)) {
+            e.getDrops().clear();
+            e.setDroppedExp(0);
+            return;
+        }
         if (v.getKiller() == null) return;
         boolean boss = v instanceof EnderDragon || v instanceof Wither || v instanceof ElderGuardian || v instanceof Warden;
         if (boss) {
