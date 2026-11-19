@@ -34,8 +34,21 @@ public class WorldListener implements Listener {
         ItemStack it = e.getItem();
         if (it == null || !it.hasItemMeta()) return;
         var pdc = it.getItemMeta().getPersistentDataContainer();
-        if (pdc.has(ChickenData.KEY, PersistentDataType.STRING) || pdc.has(Eggs.KEY, PersistentDataType.STRING)) {
+        if (pdc.has(ChickenData.KEY, PersistentDataType.STRING)) {
             e.setCancelled(true);
+            ChickenData d = ChickenData.fromItem(it);
+            Player p = e.getPlayer();
+            if (d == null) return;
+            if (pl.store().addChicken(p.getUniqueId(), d)) {
+                if (e.getHand() == EquipmentSlot.OFF_HAND) p.getInventory().setItemInOffHand(null);
+                else p.getInventory().setItemInMainHand(null);
+                Msg.send(p, "&aĐã gửi &f" + d.name + " &avào chuồng gà. Mở menu: &e/daga");
+            } else {
+                Msg.send(p, "&cChuồng gà đã đầy!");
+            }
+        } else if (pdc.has(Eggs.KEY, PersistentDataType.STRING)) {
+            e.setCancelled(true);
+            Msg.send(e.getPlayer(), "&7Mang trứng vào Lò ấp: gõ &e/daga ap");
         }
     }
 
@@ -143,7 +156,18 @@ public class WorldListener implements Listener {
             default -> 7;
         };
         ch.remove();
-        DaGaPlugin.give(p, c.toItem());
+        pl.giveChicken(p, c);
         Msg.send(p, "&aThuần hóa thành công: " + c.rarity.color + c.name + " &7(" + c.rarity.tag() + "&7)");
+    }
+
+    public static void markWild(Chicken ch, String type) {
+        String label = switch (type) {
+            case "snow" -> "&bGà Tuyết (hoang)";
+            case "desert" -> "&eGà Sa Mạc (hoang)";
+            default -> "&dGà Nấm (hoang)";
+        };
+        ch.getPersistentDataContainer().set(DaGaPlugin.WILD_KEY, PersistentDataType.STRING, type);
+        ch.customName(Msg.c(label));
+        ch.setCustomNameVisible(true);
     }
 }

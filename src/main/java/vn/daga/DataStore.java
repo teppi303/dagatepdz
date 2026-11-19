@@ -23,6 +23,8 @@ public class DataStore {
     private final File file;
     private final Map<UUID, List<Slot>> inc = new HashMap<>();
     private final Map<UUID, Stat> stats = new HashMap<>();
+    private final Map<UUID, List<ChickenData>> coops = new HashMap<>();
+    private final Map<UUID, String> active = new HashMap<>();
 
     public DataStore(DaGaPlugin plugin) {
         this.plugin = plugin;
@@ -63,6 +65,28 @@ public class DataStore {
                 stats.put(u, st);
             }
         }
+        ConfigurationSection c = y.getConfigurationSection("coop");
+        if (c != null) {
+            for (String k : c.getKeys(false)) {
+                UUID u;
+                try { u = UUID.fromString(k); } catch (IllegalArgumentException e) { continue; }
+                List<ChickenData> list = new ArrayList<>();
+                ConfigurationSection cs = c.getConfigurationSection(k);
+                if (cs != null) {
+                    for (String i : cs.getKeys(false)) {
+                        ChickenData d = ChickenData.parse(cs.getString(i, ""));
+                        if (d != null) list.add(d);
+                    }
+                }
+                coops.put(u, list);
+            }
+        }
+        ConfigurationSection a = y.getConfigurationSection("active");
+        if (a != null) {
+            for (String k : a.getKeys(false)) {
+                try { active.put(UUID.fromString(k), a.getString(k)); } catch (IllegalArgumentException ignored) { }
+            }
+        }
     }
 
     public void save() {
@@ -82,6 +106,16 @@ public class DataStore {
             y.set(b + ".losses", e.getValue().losses);
             y.set(b + ".earned", e.getValue().earned);
         }
+        for (Map.Entry<UUID, List<ChickenData>> e : coops.entrySet()) {
+            int i = 0;
+            for (ChickenData d : e.getValue()) {
+                y.set("coop." + e.getKey() + "." + i, d.serialize());
+                i++;
+            }
+        }
+        for (Map.Entry<UUID, String> e : active.entrySet()) {
+            y.set("active." + e.getKey(), e.getValue());
+        }
         try {
             y.save(file);
         } catch (IOException ex) {
@@ -89,6 +123,47 @@ public class DataStore {
         }
     }
 
+    // ----- chuồng gà -----
+    public List<ChickenData> coop(UUID u) {
+        return coops.computeIfAbsent(u, k -> new ArrayList<>());
+    }
+
+    public int coopCap() {
+        return Math.max(1, Math.min(45, plugin.getConfig().getInt("coop.slots", 18)));
+    }
+
+    public ChickenData active(UUID u) {
+        List<ChickenData> l = coop(u);
+        String id = active.get(u);
+        if (id != null) {
+            for (ChickenData d : l) if (d.id.equals(id)) return d;
+        }
+        if (!l.isEmpty()) {
+            active.put(u, l.get(0).id);
+            return l.get(0);
+        }
+        return null;
+    }
+
+    public void setActive(UUID u, String id) {
+        active.put(u, id);
+    }
+
+    public boolean addChicken(UUID u, ChickenData d) {
+        if (coop(u).size() >= coopCap()) return false;
+        coop(u).add(d);
+        if (!active.containsKey(u)) active.put(u, d.id);
+        save();
+        return true;
+    }
+
+    public void removeChicken(UUID u, ChickenData d) {
+        coop(u).remove(d);
+        if (d.id.equals(active.get(u))) active.remove(u);
+        save();
+    }
+
+    // ----- lò ấp / thống kê -----
     public List<Slot> slots(UUID u) {
         return inc.computeIfAbsent(u, k -> new ArrayList<>());
     }
@@ -99,6 +174,10 @@ public class DataStore {
         if (win) s.wins++; else s.losses++;
         s.earned += earned;
         save();
+    }
+
+    public Stat statOf(UUID u) {
+        return stats.get(u);
     }
 
     public List<Stat> top(int n) {

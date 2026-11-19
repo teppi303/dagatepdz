@@ -40,6 +40,8 @@ public class ChickenData {
     public long breedReady = 0;
     public long deadUntil = 0;
     public long weakUntil = 0;
+    public int mood = 60;
+    public long moodStamp = System.currentTimeMillis();
     public static final double WEAK = 0.8;
 
     public static String randomName(Random rnd) {
@@ -106,6 +108,10 @@ public class ChickenData {
         return weakUntil > System.currentTimeMillis();
     }
 
+    private double moodMult() {
+        return mood >= 70 ? 1.05 : (mood < 20 ? 0.9 : 1.0);
+    }
+
     private double wk() {
         return weak() ? WEAK : 1.0;
     }
@@ -123,7 +129,7 @@ public class ChickenData {
     }
 
     public double effAtk() {
-        double v = (st[ATK] + spur * 2) * wk();
+        double v = (st[ATK] + spur * 2) * wk() * moodMult();
         return hunger < 30 ? v * 0.85 : v;
     }
 
@@ -143,6 +149,11 @@ public class ChickenData {
             hunger = (int) Math.max(0, hunger - pts);
             hungerStamp += pts * 6 * 60000L;
         }
+        long mm = (now - moodStamp) / (8 * 60000L);
+        if (mm > 0) {
+            mood = (int) Math.max(0, mood - mm);
+            moodStamp += mm * 8 * 60000L;
+        }
         long mins = (now - staStamp) / 60000L;
         if (mins > 0) {
             if (hunger >= 20) sta = (int) Math.min(maxSta, sta + mins * 2);
@@ -157,7 +168,7 @@ public class ChickenData {
                 "st=" + st[0] + "," + st[1] + "," + st[2] + "," + st[3] + "," + st[4],
                 "ms=" + maxSta, "s=" + sta, "ss=" + staStamp, "h=" + hunger, "hs=" + hungerStamp,
                 "c=" + color, "sp=" + spur, "cb=" + comb, "w=" + wins, "l=" + losses, "g=" + gen,
-                "inj=" + injuredUntil, "br=" + breedReady, "du=" + deadUntil, "wu=" + weakUntil);
+                "inj=" + injuredUntil, "br=" + breedReady, "du=" + deadUntil, "wu=" + weakUntil, "mo=" + mood, "mos=" + moodStamp);
     }
 
     public static ChickenData parse(String raw) {
@@ -190,6 +201,8 @@ public class ChickenData {
                     case "br" -> c.breedReady = Long.parseLong(v);
                     case "du" -> c.deadUntil = Long.parseLong(v);
                     case "wu" -> c.weakUntil = Long.parseLong(v);
+                    case "mo" -> c.mood = Integer.parseInt(v);
+                    case "mos" -> c.moodStamp = Long.parseLong(v);
                     default -> { }
                 }
             }
@@ -211,7 +224,7 @@ public class ChickenData {
         l.add("&7Ngoại hình: &f" + COLORS[color] + " &8| &f" + SPURS[spur] + " &8| &f" + COMBS[comb]);
         l.add("&cHP &f" + st[HP] + " &8| &6Công &f" + st[ATK] + " &8| &9Thủ &f" + st[DEF]);
         l.add("&bTốc độ &f" + st[SPD] + " &8| &dMay mắn &f" + st[LUCK]);
-        l.add("&aThể lực &f" + sta + "/" + maxSta + " &8| &eNo &f" + hunger + "/100");
+        l.add("&aThể lực &f" + sta + "/" + maxSta + " &8| &eNo &f" + hunger + "/100 &8| &dTâm trạng &f" + mood + "/100");
         l.add("&7Thắng/Thua: &a" + wins + "&7/&c" + losses);
         if (dead()) {
             long left = (deadUntil - System.currentTimeMillis()) / 60000L + 1;

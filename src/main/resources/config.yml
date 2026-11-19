@@ -2,6 +2,7 @@
 bet:
   min: 100
   max: 1000000
+  presets: [0, 100, 500, 1000, 5000, 10000]   # các mức cược hiện trong menu
 tax-percent: 5                  # % thuế sàn trừ trên tổng tiền cược
 challenge-timeout-seconds: 30
 
@@ -43,3 +44,19 @@ death:
   respawn-minutes: 15           # gà chết phải chờ bao lâu mới hồi sinh
   weak-minutes: 10              # sau hồi sinh còn yếu (chỉ số giảm 20%) bao lâu
 # arena: đặt bằng lệnh /daga setarena (không đặt thì gà đấu ngay trước mặt người chấp nhận)
+
+coop:
+  slots: 18                     # số chỗ trong chuồng gà (tối đa 45)
+
+spar:
+  cooldown-seconds: 120         # đấu thử gà máy (admin không bị cooldown)
+
+shop:
+  prices:
+    mystery-egg: 1500
+    ancient-egg: 8000
+    seeds: 50
+    wheat: 80
+    bread: 100
+    golden-carrot: 400
+    golden-apple: 1000

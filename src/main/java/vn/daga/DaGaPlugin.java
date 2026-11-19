@@ -15,6 +15,7 @@ public class DaGaPlugin extends JavaPlugin {
     private VaultHook hook;
     private DataStore store;
     private FightManager fights;
+    private Gui gui;
     private final Random rnd = new Random();
 
     @Override
@@ -31,6 +32,7 @@ public class DaGaPlugin extends JavaPlugin {
         store = new DataStore(this);
         store.load();
         fights = new FightManager(this);
+        gui = new Gui(this);
 
         PluginCommand cmd = getCommand("daga");
         DaGaCommand ex = new DaGaCommand(this);
@@ -39,6 +41,7 @@ public class DaGaPlugin extends JavaPlugin {
             cmd.setTabCompleter(ex);
         }
         getServer().getPluginManager().registerEvents(new WorldListener(this), this);
+        getServer().getPluginManager().registerEvents(new GuiListener(this), this);
     }
 
     @Override
@@ -51,6 +54,17 @@ public class DaGaPlugin extends JavaPlugin {
     public DataStore store() { return store; }
     public FightManager fights() { return fights; }
     public Random rnd() { return rnd; }
+    public Gui gui() { return gui; }
+
+    /** Đưa gà vào chuồng; chuồng đầy thì đưa vào túi dưới dạng vật phẩm. */
+    public void giveChicken(Player p, ChickenData d) {
+        if (store.addChicken(p.getUniqueId(), d)) {
+            Msg.send(p, "&aGà " + d.rarity.color + d.name + " &ađã vào chuồng. Mở menu &e/daga &ađể chăm sóc.");
+        } else {
+            give(p, d.toItem());
+            Msg.send(p, "&eChuồng đã đầy! Gà được đưa vào túi. Dọn chỗ rồi chuột phải vào gà để gửi vào chuồng.");
+        }
+    }
 
     public static void give(Player p, ItemStack it) {
         for (ItemStack left : p.getInventory().addItem(it).values()) {

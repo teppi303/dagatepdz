@@ -2,6 +2,7 @@ package vn.daga;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
@@ -23,6 +24,7 @@ public class FightManager {
     private final Random rnd;
     private final Map<UUID, Challenge> pending = new HashMap<>();
     private final Map<UUID, Match> active = new HashMap<>();
+    private final Map<UUID, Long> sparCd = new HashMap<>();
 
     public FightManager(DaGaPlugin plugin) {
         this.plugin = plugin;
@@ -33,14 +35,18 @@ public class FightManager {
         return active.containsKey(p.getUniqueId());
     }
 
+    public void clearSparCooldown(UUID u) {
+        sparCd.remove(u);
+    }
+
     private ChickenData chickenOf(Player p) {
-        ChickenData d = ChickenData.fromItem(p.getInventory().getItemInMainHand());
+        ChickenData d = plugin.store().active(p.getUniqueId());
         if (d != null) d.refresh();
         return d;
     }
 
     private String check(ChickenData d, String who) {
-        if (d == null) return who + " chưa cầm gà chiến ở tay chính.";
+        if (d == null) return who + " chưa có gà chiến. Mở /daga → Chuồng gà để chọn.";
         if (d.dead()) return "Gà của " + who + " đã chết, còn ~" + ((d.deadUntil - System.currentTimeMillis()) / 60000L + 1) + " phút nữa hồi sinh.";
         if (d.injured()) return "Gà của " + who + " đang bị thương.";
         if (d.sta < 20) return "Gà của " + who + " quá mệt (cần ít nhất 20 thể lực).";
@@ -55,8 +61,30 @@ public class FightManager {
                 plugin.getConfig().getDouble("arena.y"), plugin.getConfig().getDouble("arena.z"));
     }
 
+    // ---------- đấu thử với gà máy ----------
+    public void spar(Player p, Rarity r) {
+        if (inMatch(p)) { Msg.send(p, "&cBạn đang trong trận."); return; }
+        ChickenData ca = chickenOf(p);
+        String err = check(ca, "bạn");
+        if (err != null) { Msg.send(p, "&c" + err); return; }
+        if (!p.hasPermission("daga.admin")) {
+            long cd = plugin.getConfig().getLong("spar.cooldown-seconds", 120) * 1000L;
+            long now = System.currentTimeMillis();
+            long last = sparCd.getOrDefault(p.getUniqueId(), 0L);
+            if (now - last < cd) { Msg.send(p, "&cĐợi thêm " + ((cd - (now - last)) / 1000 + 1) + " giây để đấu thử tiếp."); return; }
+            sparCd.put(p.getUniqueId(), now);
+        }
+        ChickenData bot = ChickenData.create(r, rnd);
+        bot.name = "Gà Máy " + r.label;
+        Match m = new Match(p, null, ca, bot, 0, arenaLoc());
+        active.put(p.getUniqueId(), m);
+        m.start();
+    }
+
+    // ---------- thách đấu ----------
     public void challenge(Player from, Player to, double bet) {
         if (from.equals(to)) { Msg.send(from, "&cKhông thể tự thách đấu chính mình."); return; }
+        if (!to.isOnline()) { Msg.send(from, "&cNgười đó đã thoát game."); return; }
         if (inMatch(from) || inMatch(to)) { Msg.send(from, "&cMột trong hai người đang trong trận."); return; }
         String err = check(chickenOf(from), "bạn");
         if (err != null) { Msg.send(from, "&c" + err); return; }
@@ -71,8 +99,10 @@ public class FightManager {
         Challenge ch = new Challenge(from.getUniqueId(), bet);
         pending.put(to.getUniqueId(), ch);
         Msg.send(from, "&eĐã gửi thách đấu tới &f" + to.getName() + (bet > 0 ? " &evới cược &6" + bet : "") + "&e.");
-        Msg.send(to, "&f" + from.getName() + " &ethách đấu gà" + (bet > 0 ? " với cược &6" + bet : "")
-                + "&e! Cầm gà tay chính rồi gõ &a/daga chapnhan &ehoặc &c/daga tuchoi&e.");
+        to.sendMessage(Msg.c(Msg.PREFIX + "&f" + from.getName() + " &ethách đấu gà" + (bet > 0 ? " với cược &6" + bet : "") + "&e! ")
+                .append(Msg.c("&a&l[CHẤP NHẬN]").clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/daga chapnhan")))
+                .append(Msg.c(" "))
+                .append(Msg.c("&c&l[TỪ CHỐI]").clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/daga tuchoi"))));
         long timeout = plugin.getConfig().getLong("challenge-timeout-seconds", 30) * 20L;
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (pending.get(to.getUniqueId()) == ch) {
@@ -149,7 +179,7 @@ public class FightManager {
     }
 
     private class Match {
-        final Player[] p = new Player[2];
+        final Player[] p = new Player[2];   // p[1] == null nghĩa là đấu với gà máy
         final ChickenData[] c = new ChickenData[2];
         final double[] hp = new double[2];
         final double[] max = new double[2];
@@ -159,6 +189,7 @@ public class FightManager {
         final Location[] back = new Location[2];
         final double bet;
         final boolean arenaMode;
+        final boolean spar;
         int round = 0;
         boolean over = false;
         BukkitTask task;
@@ -166,6 +197,7 @@ public class FightManager {
         Match(Player a, Player b, ChickenData ca, ChickenData cb, double bet, Location arena) {
             p[0] = a; p[1] = b; c[0] = ca; c[1] = cb;
             this.bet = bet;
+            this.spar = b == null;
             this.arenaMode = arena != null;
             for (int i = 0; i < 2; i++) { max[i] = c[i].fightHp(); hp[i] = max[i]; }
             if (arenaMode) {
@@ -176,10 +208,11 @@ public class FightManager {
                 view[1] = ctr.clone().add(4, 0, -5);
                 for (int i = 0; i < 2; i++) view[i].setDirection(ctr.toVector().subtract(view[i].toVector()));
             } else {
-                Vector dir = b.getLocation().getDirection().setY(0);
+                Player ref = b != null ? b : a;
+                Vector dir = ref.getLocation().getDirection().setY(0);
                 if (dir.lengthSquared() < 0.01) dir = new Vector(1, 0, 0);
                 dir.normalize();
-                Location ctr = b.getLocation().add(dir.clone().multiply(5));
+                Location ctr = ref.getLocation().add(dir.clone().multiply(5));
                 Vector perp = new Vector(-dir.getZ(), 0, dir.getX());
                 spots[0] = ground(ctr.clone().add(perp.clone().multiply(-1.5)));
                 spots[1] = ground(ctr.clone().add(perp.clone().multiply(1.5)));
@@ -190,7 +223,11 @@ public class FightManager {
         }
 
         void say(String m) {
-            for (Player x : p) Msg.raw(x, m);
+            for (Player x : p) if (x != null) Msg.raw(x, m);
+        }
+
+        void sound(Sound s, float vol, float pitch) {
+            for (Player x : p) if (x != null) x.playSound(x.getLocation(), s, vol, pitch);
         }
 
         void setup(Chicken ch, int i) {
@@ -237,7 +274,7 @@ public class FightManager {
         void returnPlayers() {
             if (!arenaMode) return;
             for (int i = 0; i < 2; i++) {
-                if (back[i] != null && p[i].isOnline()) p[i].teleport(back[i]);
+                if (back[i] != null && p[i] != null && p[i].isOnline()) p[i].teleport(back[i]);
             }
         }
 
@@ -249,16 +286,18 @@ public class FightManager {
         void start() {
             if (arenaMode) {
                 for (int i = 0; i < 2; i++) {
+                    if (p[i] == null) continue;
                     back[i] = p[i].getLocation();
                     p[i].teleport(view[i]);
                 }
             }
             spawnChickens();
-            say("&6&l=== TRẬN ĐÁ GÀ ===");
-            say(p[0].getName() + " &7(" + c[0].rarity.color + c[0].name + "&7) &cVS &f" + p[1].getName()
-                    + " &7(" + c[1].rarity.color + c[1].name + "&7)");
+            say("&6&l=== " + (spar ? "ĐẤU THỬ VỚI GÀ MÁY" : "TRẬN ĐÁ GÀ") + " ===");
+            say(p[0].getName() + " &7(" + c[0].rarity.color + c[0].name + "&7) &cVS &f"
+                    + (spar ? "" : p[1].getName() + " ") + "&7(" + c[1].rarity.color + c[1].name + "&7)");
             if (bet > 0) say("&7Tiền cược mỗi bên: &6" + bet);
-            for (Player x : p) x.playSound(x.getLocation(), Sound.ENTITY_CHICKEN_AMBIENT, 1f, 0.8f);
+            if (spar) say("&7Đấu thử: gà không chết, không bị thương, chỉ tốn thể lực.");
+            sound(Sound.ENTITY_CHICKEN_AMBIENT, 1f, 0.8f);
             long delay = Math.max(40L, plugin.getConfig().getLong("fight.round-delay-ticks", 50L));
             task = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 40L, delay);
         }
@@ -266,7 +305,7 @@ public class FightManager {
         void tick() {
             if (over) return;
             for (Player x : p) {
-                if (!x.isOnline()) { finish(x.equals(p[0]) ? 1 : 0, true); return; }
+                if (x != null && !x.isOnline()) { finish(x.equals(p[0]) ? 1 : 0, true); return; }
             }
             round++;
             say("&8—— &eHiệp " + round + " &8——");
@@ -337,7 +376,7 @@ public class FightManager {
             hurtFx(j, crit);
             updateTag(j);
             say("&e" + at.name + " &7" + VERBS[rnd.nextInt(VERBS.length)] + " &e" + df.name + " &c-" + d + (crit ? " &6&lCHÍ MẠNG!" : ""));
-            for (Player x : p) x.playSound(x.getLocation(), Sound.ENTITY_CHICKEN_HURT, 1f, crit ? 0.7f : 1.1f);
+            sound(Sound.ENTITY_CHICKEN_HURT, 1f, crit ? 0.7f : 1.1f);
         }
 
         String bar(int i) {
@@ -358,13 +397,21 @@ public class FightManager {
             e.damage(1000);
         }
 
+        void cleanupLater() {
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                removeEnts();
+                returnPlayers();
+            }, 60L);
+        }
+
         void finish(int w, boolean forfeit) {
             if (over) return;
             over = true;
             if (task != null) task.cancel();
             active.remove(p[0].getUniqueId());
-            active.remove(p[1].getUniqueId());
+            if (p[1] != null) active.remove(p[1].getUniqueId());
             int l = 1 - w;
+            if (spar) { finishSpar(w, forfeit); return; }
             boolean died = hp[l] <= 0 || forfeit;
             double prize = 0;
             VaultHook h = plugin.hook();
@@ -383,6 +430,7 @@ public class FightManager {
             }
             apply(p[w], c[w], true, false, hp[w] / max[w]);
             apply(p[l], c[l], false, died, hp[l] / max[l]);
+            plugin.store().save();
             plugin.store().addResult(p[w].getUniqueId(), p[w].getName(), true, prize);
             plugin.store().addResult(p[l].getUniqueId(), p[l].getName(), false, 0);
             p[w].playSound(p[w].getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 1f);
@@ -390,58 +438,74 @@ public class FightManager {
                 DaGaPlugin.give(p[w], Eggs.wild(1));
                 Msg.send(p[w], "&5Phần thưởng hiếm: bạn nhận được 1 Trứng Cổ Đại!");
             }
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                removeEnts();
-                returnPlayers();
-            }, 60L);
+            cleanupLater();
+        }
+
+        void finishSpar(int w, boolean forfeit) {
+            Player pl = p[0];
+            ChickenData d = c[0];
+            boolean win = w == 0;
+            say(win ? "&6&l★ BẠN THẮNG GÀ MÁY ★" : "&c&lBạn thua gà máy" + (forfeit ? " (bỏ cuộc)" : "") + " &7- không mất gì, thử lại nhé!");
+            if (win) kill(1); else kill(0);
+            d.refresh();
+            d.sta = Math.max(0, d.sta - 20);
+            d.hunger = Math.max(0, d.hunger - 5);
+            d.mood = Math.max(0, Math.min(100, d.mood + (win ? 5 : -3)));
+            if (win && !forfeit) {
+                if (rnd.nextDouble() < 0.35) {
+                    int s = rnd.nextInt(5);
+                    if (d.train(s)) Msg.send(pl, "&dRút được kinh nghiệm! &f" + ChickenData.STAT_NAMES[s] + " &dtăng lên &f" + d.st[s]);
+                }
+                if (rnd.nextDouble() < 0.25) {
+                    DaGaPlugin.give(pl, new ItemStack(Material.WHEAT_SEEDS, 3));
+                    Msg.send(pl, "&aNhặt được 3 hạt giống từ gà máy.");
+                }
+            }
+            plugin.store().save();
+            cleanupLater();
         }
 
         void abort() {
             if (over) return;
             over = true;
             if (task != null) task.cancel();
-            if (bet > 0 && plugin.hook() != null) {
+            if (bet > 0 && plugin.hook() != null && p[1] != null) {
                 plugin.hook().deposit(p[0], bet);
                 plugin.hook().deposit(p[1], bet);
             }
-            say("&cTrận đấu bị hủy do server dừng, đã hoàn tiền cược.");
+            say("&cTrận đấu bị hủy do server dừng" + (bet > 0 ? ", đã hoàn tiền cược." : "."));
             removeEnts();
             returnPlayers();
         }
     }
 
-    private void apply(Player pl, ChickenData snap, boolean win, boolean died, double hpPct) {
-        ItemStack[] contents = pl.getInventory().getContents();
-        for (int i = 0; i < contents.length; i++) {
-            ChickenData d = ChickenData.fromItem(contents[i]);
-            if (d == null || !d.id.equals(snap.id)) continue;
-            d.refresh();
-            long now = System.currentTimeMillis();
-            d.sta = Math.max(0, d.sta - (win ? 15 : 35));
-            d.hunger = Math.max(0, d.hunger - 10);
-            if (win) {
-                d.wins++;
-                if (hpPct < 0.25) {
-                    d.injuredUntil = now + plugin.getConfig().getLong("injury.minutes", 10) * 60000L;
-                    Msg.send(pl, "&cGà thắng nhưng bị thương nặng! Dùng &e/daga chua &c(cần 1 cà rốt vàng).");
-                }
-            } else {
-                d.losses++;
-                if (died) {
-                    long respawn = plugin.getConfig().getLong("death.respawn-minutes", 15);
-                    long weak = plugin.getConfig().getLong("death.weak-minutes", 10);
-                    d.deadUntil = now + respawn * 60000L;
-                    d.weakUntil = d.deadUntil + weak * 60000L;
-                    d.injuredUntil = 0;
-                    Msg.send(pl, "&4☠ &cGà của bạn đã chết! Hồi sinh sau &f" + respawn + " &cphút, sau đó còn yếu &f" + weak
-                            + " &cphút (chỉ số giảm 20%). Hồi sinh ngay: &e/daga hoisinh &c(1 táo vàng).");
-                } else if (rnd.nextDouble() < plugin.getConfig().getDouble("injury.chance", 0.35)) {
-                    d.injuredUntil = now + plugin.getConfig().getLong("injury.minutes", 10) * 60000L;
-                    Msg.send(pl, "&cGà của bạn bị thương! Dùng &e/daga chua &c(cần 1 cà rốt vàng).");
-                }
+    private void apply(Player pl, ChickenData d, boolean win, boolean died, double hpPct) {
+        d.refresh();
+        long now = System.currentTimeMillis();
+        d.sta = Math.max(0, d.sta - (win ? 15 : 35));
+        d.hunger = Math.max(0, d.hunger - 10);
+        if (win) {
+            d.wins++;
+            d.mood = Math.min(100, d.mood + 10);
+            if (hpPct < 0.25) {
+                d.injuredUntil = now + plugin.getConfig().getLong("injury.minutes", 10) * 60000L;
+                Msg.send(pl, "&cGà thắng nhưng bị thương nặng! Chữa trong menu Chăm sóc (cần 1 cà rốt vàng).");
             }
-            pl.getInventory().setItem(i, d.toItem());
-            return;
+        } else {
+            d.losses++;
+            d.mood = Math.max(0, d.mood - 15);
+            if (died) {
+                long respawn = plugin.getConfig().getLong("death.respawn-minutes", 15);
+                long weak = plugin.getConfig().getLong("death.weak-minutes", 10);
+                d.deadUntil = now + respawn * 60000L;
+                d.weakUntil = d.deadUntil + weak * 60000L;
+                d.injuredUntil = 0;
+                Msg.send(pl, "&4☠ &cGà của bạn đã chết! Hồi sinh sau &f" + respawn + " &cphút, sau đó còn yếu &f" + weak
+                        + " &cphút (chỉ số giảm 20%). Hồi sinh ngay trong menu Chăm sóc (1 táo vàng).");
+            } else if (rnd.nextDouble() < plugin.getConfig().getDouble("injury.chance", 0.35)) {
+                d.injuredUntil = now + plugin.getConfig().getLong("injury.minutes", 10) * 60000L;
+                Msg.send(pl, "&cGà của bạn bị thương! Chữa trong menu Chăm sóc (1 cà rốt vàng).");
+            }
         }
     }
 
