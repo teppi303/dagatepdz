@@ -11,7 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class DaGaCommand implements CommandExecutor, TabCompleter {
-    private static final List<String> SUBS = List.of("menu", "giup", "chuong", "cham", "ap", "ghep", "dauthu", "cuahang",
+    private static final List<String> SUBS = List.of("menu", "mang", "giup", "chuong", "cham", "ap", "ghep", "dauthu", "cuahang",
             "top", "thachdau", "chapnhan", "tuchoi", "admin");
 
     private final DaGaPlugin pl;
@@ -37,6 +37,7 @@ public class DaGaCommand implements CommandExecutor, TabCompleter {
         Gui g = pl.gui();
         switch (sub) {
             case "menu" -> g.openMain(p);
+            case "mang" -> pl.companions().toggle(p);
             case "giup", "help" -> g.openHelp(p);
             case "chuong" -> g.openCoop(p);
             case "cham" -> g.openCare(p);

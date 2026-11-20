@@ -1,5 +1,6 @@
 package vn.daga;
 
+import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -25,6 +26,8 @@ public class FightManager {
     private final Map<UUID, Challenge> pending = new HashMap<>();
     private final Map<UUID, Match> active = new HashMap<>();
     private final Map<UUID, Long> sparCd = new HashMap<>();
+    private final Map<UUID, Long> wildCd = new HashMap<>();
+    private final Set<UUID> busyEnts = new HashSet<>();
 
     public FightManager(DaGaPlugin plugin) {
         this.plugin = plugin;
@@ -77,6 +80,39 @@ public class FightManager {
         ChickenData bot = ChickenData.create(r, rnd);
         bot.name = "Gà Máy " + r.label;
         Match m = new Match(p, null, ca, bot, 0, arenaLoc());
+        active.put(p.getUniqueId(), m);
+        m.start();
+    }
+
+    // ---------- gà đồng hành đấu gà làng ----------
+    public void wildFight(Player p, Chicken target) {
+        if (inMatch(p)) { Msg.send(p, "&cBạn đang trong trận."); return; }
+        Chicken mine = plugin.companions().get(p.getUniqueId());
+        if (mine == null) { Msg.send(p, "&cGà đồng hành của bạn chưa ở đây."); return; }
+        if (!target.isAdult()) { Msg.send(p, "&7Gà con còn nhỏ quá, đừng bắt nạt nó."); return; }
+        if (busyEnts.contains(target.getUniqueId())) { Msg.send(p, "&cGà này đang bận."); return; }
+        if (!mine.getWorld().equals(target.getWorld()) || mine.getLocation().distance(target.getLocation()) > 8) {
+            Msg.send(p, "&cGà của bạn ở xa quá, đợi nó chạy lại gần rồi thử lại.");
+            return;
+        }
+        ChickenData ca = chickenOf(p);
+        String err = check(ca, "bạn");
+        if (err != null) { Msg.send(p, "&c" + err); return; }
+        if (!p.hasPermission("daga.admin")) {
+            long cd = plugin.getConfig().getLong("wildfight.cooldown-seconds", 20) * 1000L;
+            long now = System.currentTimeMillis();
+            long last = wildCd.getOrDefault(p.getUniqueId(), 0L);
+            if (now - last < cd) { Msg.send(p, "&cĐợi thêm " + ((cd - (now - last)) / 1000 + 1) + " giây."); return; }
+            wildCd.put(p.getUniqueId(), now);
+        }
+        ChickenData bot = new ChickenData();
+        bot.rarity = ca.rarity;
+        bot.level = Math.max(1, ca.level - rnd.nextInt(3));
+        bot.name = "Gà Làng";
+        for (int i = 0; i < 5; i++) bot.st[i] = Math.max(1, (int) Math.round(ca.st[i] * (0.55 + rnd.nextDouble() * 0.4)));
+        bot.spur = rnd.nextInt(2);
+        bot.comb = rnd.nextInt(2);
+        Match m = new Match(p, ca, bot, mine, target);
         active.put(p.getUniqueId(), m);
         m.start();
     }
@@ -190,6 +226,11 @@ public class FightManager {
         final double bet;
         final boolean arenaMode;
         final boolean spar;
+        boolean borrowed = false;      // dùng gà có sẵn ngoài đời (gà đồng hành + gà làng)
+        UUID foeId;
+        final Component[] oldName = new Component[2];
+        final boolean[] oldVis = new boolean[2];
+        boolean oldInvFoe;
         int round = 0;
         boolean over = false;
         BukkitTask task;
@@ -220,6 +261,51 @@ public class FightManager {
             Vector face = spots[1].toVector().subtract(spots[0].toVector()).setY(0);
             spots[0].setDirection(face);
             spots[1].setDirection(face.clone().multiply(-1));
+        }
+
+        /** Trận dùng gà thật có sẵn: gà đồng hành của người chơi và 1 gà làng. */
+        Match(Player a, ChickenData ca, ChickenData cb, Chicken own, Chicken foe) {
+            this(a, null, ca, cb, 0, null);
+            this.borrowed = true;
+            this.foeId = foe.getUniqueId();
+            ents[0] = own;
+            ents[1] = foe;
+            spots[0] = own.getLocation();
+            spots[1] = foe.getLocation();
+            Vector face = spots[1].toVector().subtract(spots[0].toVector()).setY(0);
+            if (face.lengthSquared() < 0.01) face = new Vector(1, 0, 0);
+            spots[0].setDirection(face);
+            spots[1].setDirection(face.clone().multiply(-1));
+        }
+
+        void borrow() {
+            for (int i = 0; i < 2; i++) {
+                if (!valid(i)) continue;
+                oldName[i] = ents[i].customName();
+                oldVis[i] = ents[i].isCustomNameVisible();
+                ents[i].setAI(false);
+                ents[i].setCustomNameVisible(true);
+            }
+            if (valid(1)) {
+                oldInvFoe = ents[1].isInvulnerable();
+                ents[1].setInvulnerable(true);
+            }
+            busyEnts.add(foeId);
+            updateTag(0);
+            updateTag(1);
+        }
+
+        void restore() {
+            for (int i = 0; i < 2; i++) {
+                if (!valid(i)) continue;
+                ents[i].setAI(true);
+                ents[i].customName(oldName[i]);
+                ents[i].setCustomNameVisible(oldVis[i]);
+            }
+            if (valid(1)) ents[1].setInvulnerable(oldInvFoe);
+            busyEnts.remove(foeId);
+            ents[0] = null;
+            ents[1] = null;
         }
 
         void say(String m) {
@@ -265,6 +351,7 @@ public class FightManager {
         }
 
         void removeEnts() {
+            if (borrowed) { restore(); return; }
             for (int i = 0; i < 2; i++) {
                 if (ents[i] != null && ents[i].isValid()) ents[i].remove();
                 ents[i] = null;
@@ -291,12 +378,17 @@ public class FightManager {
                     p[i].teleport(view[i]);
                 }
             }
-            spawnChickens();
-            say("&6&l=== " + (spar ? "ĐẤU THỬ VỚI GÀ MÁY" : "TRẬN ĐÁ GÀ") + " ===");
+            if (borrowed) {
+                borrow();
+            } else {
+                for (Player x : p) if (x != null) plugin.companions().pause(x);
+                spawnChickens();
+            }
+            say("&6&l=== " + (borrowed ? "GÀ CỦA BẠN ĐẤU GÀ LÀNG" : spar ? "ĐẤU THỬ VỚI GÀ MÁY" : "TRẬN ĐÁ GÀ") + " ===");
             say(p[0].getName() + " &7(" + c[0].rarity.color + c[0].name + "&7) &cVS &f"
                     + (spar ? "" : p[1].getName() + " ") + "&7(" + c[1].rarity.color + c[1].name + "&7)");
             if (bet > 0) say("&7Tiền cược mỗi bên: &6" + bet);
-            if (spar) say("&7Đấu thử: gà không chết, không bị thương, chỉ tốn thể lực.");
+            if (spar) say("&7Gà không chết, không bị thương, chỉ tốn thể lực" + (borrowed ? " (10)." : " (20)."));
             sound(Sound.ENTITY_CHICKEN_AMBIENT, 1f, 0.8f);
             long delay = Math.max(40L, plugin.getConfig().getLong("fight.round-delay-ticks", 50L));
             task = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 40L, delay);
@@ -391,6 +483,10 @@ public class FightManager {
 
         void kill(int i) {
             if (!valid(i)) return;
+            if (borrowed) {
+                ents[i].getWorld().spawnParticle(Particle.CLOUD, ents[i].getLocation().add(0, 0.4, 0), 15, 0.3, 0.3, 0.3, 0.03);
+                return;
+            }
             Chicken e = ents[i];
             e.setInvulnerable(false);
             e.getWorld().spawnParticle(Particle.CLOUD, e.getLocation().add(0, 0.4, 0), 25, 0.3, 0.3, 0.3, 0.05);
@@ -401,6 +497,7 @@ public class FightManager {
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
                 removeEnts();
                 returnPlayers();
+                if (!borrowed) for (Player x : p) if (x != null) plugin.companions().resume(x);
             }, 60L);
         }
 
@@ -445,22 +542,24 @@ public class FightManager {
             Player pl = p[0];
             ChickenData d = c[0];
             boolean win = w == 0;
-            say(win ? "&6&l★ BẠN THẮNG GÀ MÁY ★" : "&c&lBạn thua gà máy" + (forfeit ? " (bỏ cuộc)" : "") + " &7- không mất gì, thử lại nhé!");
+            String foe = borrowed ? "gà làng" : "gà máy";
+            say(win ? "&6&l★ BẠN THẮNG " + foe.toUpperCase() + " ★" : "&c&lBạn thua " + foe + (forfeit ? " (bỏ cuộc)" : "") + " &7- không mất gì, thử lại nhé!");
             if (win) kill(1); else kill(0);
             d.refresh();
-            d.sta = Math.max(0, d.sta - 20);
-            d.hunger = Math.max(0, d.hunger - 5);
+            d.sta = Math.max(0, d.sta - (borrowed ? 10 : 20));
+            d.hunger = Math.max(0, d.hunger - (borrowed ? 3 : 5));
             d.mood = Math.max(0, Math.min(100, d.mood + (win ? 5 : -3)));
             if (win && !forfeit) {
-                if (rnd.nextDouble() < 0.35) {
+                if (rnd.nextDouble() < (borrowed ? 0.5 : 0.35)) {
                     int s = rnd.nextInt(5);
                     if (d.train(s)) Msg.send(pl, "&dRút được kinh nghiệm! &f" + ChickenData.STAT_NAMES[s] + " &dtăng lên &f" + d.st[s]);
                 }
-                if (rnd.nextDouble() < 0.25) {
+                if (!borrowed && rnd.nextDouble() < 0.25) {
                     DaGaPlugin.give(pl, new ItemStack(Material.WHEAT_SEEDS, 3));
                     Msg.send(pl, "&aNhặt được 3 hạt giống từ gà máy.");
                 }
             }
+            plugin.giveXp(pl, d, win ? (borrowed ? 20 : 10) : (borrowed ? 6 : 3));
             plugin.store().save();
             cleanupLater();
         }
@@ -481,6 +580,7 @@ public class FightManager {
 
     private void apply(Player pl, ChickenData d, boolean win, boolean died, double hpPct) {
         d.refresh();
+        plugin.giveXp(pl, d, win ? 40 : (died ? 10 : 15));
         long now = System.currentTimeMillis();
         d.sta = Math.max(0, d.sta - (win ? 15 : 35));
         d.hunger = Math.max(0, d.hunger - 10);

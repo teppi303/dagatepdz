@@ -41,6 +41,9 @@ public class ChickenData {
     public long deadUntil = 0;
     public long weakUntil = 0;
     public int mood = 60;
+    public int level = 1;
+    public int xp = 0;
+    public static final int MAX_LEVEL = 30;
     public long moodStamp = System.currentTimeMillis();
     public static final double WEAK = 0.8;
 
@@ -108,6 +111,28 @@ public class ChickenData {
         return weakUntil > System.currentTimeMillis();
     }
 
+    public int needXp() {
+        return 40 + 20 * level;
+    }
+
+    /** Cộng kinh nghiệm, trả về số cấp vừa lên. */
+    public int addXp(int amount) {
+        if (level >= MAX_LEVEL) return 0;
+        xp += amount;
+        int ups = 0;
+        while (level < MAX_LEVEL && xp >= needXp()) {
+            xp -= needXp();
+            level++;
+            ups++;
+        }
+        if (level >= MAX_LEVEL) xp = 0;
+        return ups;
+    }
+
+    private double lv() {
+        return 1.0 + 0.015 * (level - 1);
+    }
+
     private double moodMult() {
         return mood >= 70 ? 1.05 : (mood < 20 ? 0.9 : 1.0);
     }
@@ -117,24 +142,24 @@ public class ChickenData {
     }
 
     public double fightHp() {
-        return st[HP] * wk();
+        return st[HP] * wk() * lv();
     }
 
     public double spd() {
-        return st[SPD] * wk();
+        return st[SPD] * wk() * lv();
     }
 
     public double luck() {
-        return st[LUCK] * wk();
+        return st[LUCK] * wk() * lv();
     }
 
     public double effAtk() {
-        double v = (st[ATK] + spur * 2) * wk() * moodMult();
+        double v = (st[ATK] + spur * 2) * wk() * moodMult() * lv();
         return hunger < 30 ? v * 0.85 : v;
     }
 
     public double effDef() {
-        return (st[DEF] + comb * 2) * wk();
+        return (st[DEF] + comb * 2) * wk() * lv();
     }
 
     public boolean injured() {
@@ -168,7 +193,7 @@ public class ChickenData {
                 "st=" + st[0] + "," + st[1] + "," + st[2] + "," + st[3] + "," + st[4],
                 "ms=" + maxSta, "s=" + sta, "ss=" + staStamp, "h=" + hunger, "hs=" + hungerStamp,
                 "c=" + color, "sp=" + spur, "cb=" + comb, "w=" + wins, "l=" + losses, "g=" + gen,
-                "inj=" + injuredUntil, "br=" + breedReady, "du=" + deadUntil, "wu=" + weakUntil, "mo=" + mood, "mos=" + moodStamp);
+                "inj=" + injuredUntil, "br=" + breedReady, "du=" + deadUntil, "wu=" + weakUntil, "mo=" + mood, "mos=" + moodStamp, "lv=" + level, "xp=" + xp);
     }
 
     public static ChickenData parse(String raw) {
@@ -203,6 +228,8 @@ public class ChickenData {
                     case "wu" -> c.weakUntil = Long.parseLong(v);
                     case "mo" -> c.mood = Integer.parseInt(v);
                     case "mos" -> c.moodStamp = Long.parseLong(v);
+                    case "lv" -> c.level = Integer.parseInt(v);
+                    case "xp" -> c.xp = Integer.parseInt(v);
                     default -> { }
                 }
             }
@@ -221,6 +248,7 @@ public class ChickenData {
     public List<String> infoLines() {
         List<String> l = new ArrayList<>();
         l.add("&7Độ hiếm: " + rarity.tag() + " &8| &7Đời: &f" + gen);
+        l.add("&6Cấp &f" + level + "&7/" + MAX_LEVEL + " &8| &7XP: &f" + (level >= MAX_LEVEL ? "MAX" : xp + "/" + needXp()));
         l.add("&7Ngoại hình: &f" + COLORS[color] + " &8| &f" + SPURS[spur] + " &8| &f" + COMBS[comb]);
         l.add("&cHP &f" + st[HP] + " &8| &6Công &f" + st[ATK] + " &8| &9Thủ &f" + st[DEF]);
         l.add("&bTốc độ &f" + st[SPD] + " &8| &dMay mắn &f" + st[LUCK]);

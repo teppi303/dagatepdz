@@ -109,6 +109,11 @@ public class Gui {
         } else {
             m.set(4, Ui.icon(Material.BARRIER, "&cChưa có gà chiến", "&7Kiếm gà rồi chọn trong Chuồng gà", "&7Xem mục Hướng dẫn để biết cách kiếm gà"), null);
         }
+        boolean out = pl.companions().isOut(p);
+        m.set(13, Ui.icon(Material.LEAD, out ? "&a&lGà đang đi theo bạn" : "&e&lMang gà đi theo bạn",
+                out ? "&7Bấm để cho gà về nghỉ." : "&7Gà chiến sẽ đi theo bạn ngoài đời.",
+                "&7Chuột phải: vuốt ve / cho ăn. Shift + chuột phải: chăm sóc.", "&7Shift + chuột phải vào gà khác: đấu để lên cấp."),
+                e -> { pl.companions().toggle(p); m.refresh(); });
         m.set(19, Ui.icon(Material.HAY_BLOCK, "&e&lChuồng gà", "&7Xem tất cả gà của bạn,", "&7chọn gà chiến, rút gà ra túi.", "", "&aBấm để mở"), e -> openCoop(p));
         m.set(20, Ui.icon(Material.WHEAT, "&a&lChăm sóc gà", "&7Cho ăn, tập luyện, nghỉ ngơi,", "&7vuốt ve, chữa thương, hồi sinh.", "", "&aBấm để mở"), e -> openCare(p));
         m.set(21, Ui.icon(Material.EGG, "&d&lLò ấp trứng", "&7Ấp trứng bí ẩn và trứng gà lai,", "&7nhận gà mới khi trứng nở.", "", "&aBấm để mở"), e -> openIncubator(p));
@@ -150,6 +155,7 @@ public class Gui {
                     } else {
                         st().setActive(p.getUniqueId(), d.id);
                         st().save();
+                        pl.companions().refresh(p);
                         Msg.send(p, "&aĐã chọn &f" + d.name + " &alàm gà chiến.");
                     }
                     m.refresh();
@@ -214,6 +220,18 @@ public class Gui {
         m.set(30, Ui.icon(Material.GOLDEN_CARROT, "&cChữa thương", "&7Tốn 1 cà rốt vàng.", d.injured() ? "&4Gà đang bị thương!" : "&7Gà không bị thương.", "&8Bấm để chữa"), e -> cure(p, m));
         m.set(31, Ui.icon(Material.GOLDEN_APPLE, "&6Hồi sinh ngay", "&7Tốn 1 táo vàng, gà vẫn yếu một lúc.", d.dead() ? "&4Gà đã chết!" : "&7Gà còn sống.", "&8Bấm để hồi sinh"), e -> revive(p, m));
         m.set(32, Ui.icon(Material.NAME_TAG, "&fĐổi tên", "&7Gõ tên mới vào chat.", "&8Bấm để đổi"), e -> { p.closeInventory(); startRename(p); });
+        m.set(33, Ui.icon(Material.LEAD, pl.companions().isOut(p) ? "&aCho gà về nghỉ" : "&eMang gà đi theo", "&7Gà đi theo bạn ngoài đời,", "&7chuột phải vào gà để mở menu này."), e -> { pl.companions().toggle(p); m.refresh(); });
+        List<String> lore = new ArrayList<>();
+        lore.add("&7XP: &f" + (d.level >= ChickenData.MAX_LEVEL ? "MAX" : d.xp + "/" + d.needXp()));
+        lore.add("&7Mỗi cấp +1.5% mọi chỉ số chiến đấu.");
+        lore.add("");
+        for (int i = 0; i < Companions.PERK_LV.length; i++) {
+            lore.add((d.level >= Companions.PERK_LV[i] ? "&a✔ " : "&8✘ ") + "Lv." + Companions.PERK_LV[i] + ": " + Companions.PERK_TXT[i]);
+        }
+        lore.add("");
+        lore.add("&7Gà phải còn no (từ 30) mới dùng được kỹ năng.");
+        lore.add("&7Lên cấp bằng cách: đấu, chăm sóc, dắt đi dạo.");
+        m.set(40, Ui.icon(Material.EXPERIENCE_BOTTLE, "&6&lCấp " + d.level + "/" + ChickenData.MAX_LEVEL + " &7- Kỹ năng", lore.toArray(new String[0])), null);
         back(m, 49, p);
     }
 
@@ -231,6 +249,7 @@ public class Gui {
             int s = rnd().nextInt(5);
             if (d.train(s)) extra = " &d(+1 " + ChickenData.STAT_NAMES[s] + ")";
         }
+        pl.giveXp(p, d, 1);
         st().save();
         Msg.send(p, "&aĐã cho gà ăn, độ no: &f" + d.hunger + "/100" + extra);
         m.refresh();
@@ -249,6 +268,7 @@ public class Gui {
         d.hunger = Math.max(0, d.hunger - 3);
         d.mood = Math.max(0, d.mood - 2);
         boolean ok = d.train(stat);
+        pl.giveXp(p, d, 2);
         st().save();
         if (ok) Msg.send(p, "&aTập xong! &f" + ChickenData.STAT_NAMES[stat] + " &atăng lên &f" + d.st[stat] + "&7/" + d.cap(stat));
         else Msg.send(p, "&e" + ChickenData.STAT_NAMES[stat] + " đã chạm giới hạn của độ hiếm này (" + d.cap(stat) + ").");
@@ -278,6 +298,7 @@ public class Gui {
         if (d.dead()) { Msg.send(p, "&cGà đã chết."); return; }
         if (onCooldown(p, "pet", 20)) return;
         d.mood = Math.min(100, d.mood + 10);
+        pl.giveXp(p, d, 1);
         st().save();
         p.getWorld().spawnParticle(Particle.HEART, p.getLocation().add(0, 1.5, 0), 6, 0.3, 0.2, 0.3, 0);
         Msg.send(p, "&dBạn vuốt ve gà, tâm trạng: &f" + d.mood + "/100");
@@ -598,12 +619,13 @@ public class Gui {
         open(p, new Menu(p, 36, "&f&lHướng dẫn chơi", m -> {
             m.background();
             m.set(10, Ui.icon(Material.BOOK, "&e1. Bắt đầu", "&7Gõ &f/daga &7để mở menu chính.", "&7Mọi thứ đều bấm chuột, không cần nhớ lệnh.", "&7Cần có gà trước: xem mục Kiếm gà.", "&7Gà mới nở/thuần được sẽ vào Chuồng gà.", "&7Chọn 1 gà làm &agà chiến &7trong Chuồng."), null);
-            m.set(11, Ui.icon(Material.FISHING_ROD, "&e2. Kiếm gà", "&7- Giết quái: rơi Trứng Bí Ẩn (hiếm).", "&7- Boss rơi Trứng Cổ Đại (xịn).", "&7- Câu cá có thể ra trứng.", "&7- Rương hầm ngục có Trứng Cổ Đại.", "&7- Gà hoang ở biome tuyết/sa mạc/nấm:", "&7  cầm hạt giống riêng, chuột phải vào gà.", "&7  (tuyết: củ dền, sa mạc: dưa hấu, nấm: bí ngô)", "&7- Mua ở Cửa hàng, hoặc thắng trận."), null);
+            m.set(11, Ui.icon(Material.FISHING_ROD, "&e2. Kiếm gà", "&7- Giết quái: rơi Trứng Bí Ẩn (hiếm).", "&7- Câu cá có thể ra trứng.", "&7- Gà hoang ở biome tuyết/sa mạc/nấm:", "&7  cầm hạt giống riêng, chuột phải vào gà.", "&7  (tuyết: củ dền, sa mạc: dưa hấu, nấm: bí ngô)", "&7- Mua ở Cửa hàng, hoặc thắng trận."), null);
             m.set(12, Ui.icon(Material.WHEAT, "&e3. Chăm gà", "&7Vào menu Chăm sóc gà:", "&7- Cho ăn: giữ độ no (đói quá gà đánh yếu).", "&7- Tập luyện: tăng chỉ số, tốn thể lực.", "&7- Nghỉ ngơi: hồi thể lực (gần bó rơm nhiều hơn).", "&7- Vuốt ve: tâm trạng cao đánh mạnh hơn.", "&7- Chữa thương / Hồi sinh khi cần."), null);
             m.set(13, Ui.icon(Material.EGG, "&e4. Ấp trứng", "&7Vào Lò ấp, bấm vào trứng trong túi.", "&7Trứng càng hiếm ấp càng lâu (5-40 phút).", "&7Đứng gần lửa trại: ấp nhanh hơn 30%.", "&7Đêm trăng tròn: dễ ra gà đột biến.", "&7Trứng nở xong bấm để nhận gà."), null);
             m.set(14, Ui.icon(Material.GOLDEN_CARROT, "&e5. Ghép gen", "&7Chọn 2 gà trong menu Ghép gen.", "&7Cần thể lực và no từ 50, nghỉ 30 phút/lần.", "&7Nhận Trứng Gà Lai, con thừa hưởng gen bố mẹ,", "&7có thể đột biến độ hiếm, màu lông, cựa, mào."), null);
             m.set(15, Ui.icon(Material.IRON_SWORD, "&e6. Đấu", "&7Thách đấu người chơi: chọn đối thủ + mức cược.", "&7Đối thủ bấm [CHẤP NHẬN] trong chat.", "&72 gà thật xuất hiện và đánh nhau.", "&7Thắng nhận tiền (trừ thuế sàn).", "&7Muốn tập một mình: Đấu thử gà máy,", "&7không mất gì, thắng có thưởng."), null);
             m.set(16, Ui.icon(Material.TOTEM_OF_UNDYING, "&e7. Chết & hồi sinh", "&7Thua mà hết máu thì gà chết 15 phút,", "&7sau đó còn yếu 10 phút (chỉ số -20%).", "&7Hồi sinh ngay: 1 táo vàng.", "&7Thắng nhưng còn ít máu / thua nhẹ: có thể", "&7bị thương, chữa bằng 1 cà rốt vàng."), null);
+            m.set(20, Ui.icon(Material.LEAD, "&e0. Gà đồng hành", "&7Bấm &fMang gà đi theo bạn &7ở menu chính:", "&7gà chiến sẽ đi theo bạn ngoài đời thật.", "&7- Chuột phải tay không: vuốt ve. Cầm hạt/lúa/bánh: cho ăn.", "&7- Shift + chuột phải: mở menu chăm sóc.", "&7- Gà lên cấp thì mở kỹ năng: bới đất ra hạt giống,", "&7  đỡ rơi, mổ quái giúp bạn, hào quang may mắn...", "&7  (xem chi tiết trong menu Chăm sóc).", "&7- Shift + chuột phải vào gà làng:", "&7  gà bạn đấu với nó, thắng có thể tăng chỉ số", "&7  (tốn 10 thể lực, không chết).", "&7- Shift + chuột phải vào gà của người khác:", "&7  thách đấu họ.", "&7- Dắt gà đi dạo lâu: tâm trạng tăng dần."), null);
             m.set(22, Ui.icon(Material.NETHER_STAR, "&e8. Mẹo", "&7- Gà Huyền Thoại có chỉ số trần cao nhất.", "&7- Luôn để gà no và còn thể lực trước khi đấu.", "&7- Chuột phải vào vật phẩm gà để gửi vào chuồng.", "&7- Chuồng đầy thì gà nở ra sẽ vào túi."), null);
             back(m, 31, p);
         }));

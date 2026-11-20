@@ -1,22 +1,25 @@
 package vn.daga;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.CreatureSpawnEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.entity.EntityDropItemEvent;
 import org.bukkit.event.player.PlayerFishEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.event.world.LootGenerateEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.util.Random;
+import java.util.UUID;
 
 public class WorldListener implements Listener {
     private final DaGaPlugin pl;
@@ -55,9 +58,65 @@ public class WorldListener implements Listener {
     @EventHandler
     public void onQuit(PlayerQuitEvent e) {
         pl.fights().onQuit(e.getPlayer());
+        pl.companions().forget(e.getPlayer());
     }
 
-    // Quái chết / boss rơi trứng
+    // Gà đồng hành / gà đang đấu không đẻ trứng
+    @EventHandler
+    public void onChickenDrop(EntityDropItemEvent e) {
+        var pdc = e.getEntity().getPersistentDataContainer();
+        if (pdc.has(DaGaPlugin.COMPANION_KEY, PersistentDataType.STRING) || pdc.has(DaGaPlugin.FIGHT_KEY, PersistentDataType.BYTE)) {
+            e.setCancelled(true);
+        }
+    }
+
+    // Gà đồng hành đỡ sát thương rơi cho chủ
+    @EventHandler
+    public void onFall(EntityDamageEvent e) {
+        if (!(e.getEntity() instanceof Player p)) return;
+        if (e.getCause() != EntityDamageEvent.DamageCause.FALL) return;
+        double f = pl.companions().fallFactor(p);
+        if (f >= 1.0) return;
+        if (f <= 0.0) e.setCancelled(true);
+        else e.setDamage(e.getDamage() * f);
+    }
+
+    // Tương tác với gà đồng hành / gà làng
+    @EventHandler
+    public void onChickenClick(PlayerInteractEntityEvent e) {
+        if (e.getHand() != EquipmentSlot.HAND) return;
+        if (!(e.getRightClicked() instanceof Chicken ch)) return;
+        Player p = e.getPlayer();
+        var pdc = ch.getPersistentDataContainer();
+        if (pdc.has(DaGaPlugin.FIGHT_KEY, PersistentDataType.BYTE)) { e.setCancelled(true); return; }
+        UUID owner = pl.companions().ownerOf(ch);
+        if (owner != null) {
+            e.setCancelled(true);
+            if (owner.equals(p.getUniqueId())) {
+                if (p.isSneaking()) pl.gui().openCare(p);
+                else pl.companions().interact(p, ch);
+                return;
+            }
+            Player op = Bukkit.getPlayer(owner);
+            if (op == null) return;
+            ChickenData od = pl.store().active(owner);
+            Msg.send(p, "&7Gà của &f" + op.getName() + "&7: " + (od == null ? "?" : od.rarity.color + od.name + " &7(" + od.rarity.tag() + "&7)"));
+            if (p.isSneaking()) pl.fights().challenge(p, op, 0);
+            else Msg.send(p, "&8Shift + chuột phải để thách đấu gà này.");
+            return;
+        }
+        if (pdc.has(DaGaPlugin.WILD_KEY, PersistentDataType.STRING)) return;
+        if (p.isSneaking()) {
+            e.setCancelled(true);
+            if (!pl.companions().isOut(p)) {
+                Msg.send(p, "&7Hãy mang gà theo (menu &e/daga &7→ Mang gà đi theo bạn) rồi Shift + chuột phải vào gà khác để đấu.");
+                return;
+            }
+            pl.fights().wildFight(p, ch);
+        }
+    }
+
+    // Quái thường chết có tỉ lệ rơi trứng
     @EventHandler
     public void onDeath(EntityDeathEvent e) {
         LivingEntity v = e.getEntity();
@@ -67,11 +126,7 @@ public class WorldListener implements Listener {
             return;
         }
         if (v.getKiller() == null) return;
-        boolean boss = v instanceof EnderDragon || v instanceof Wither || v instanceof ElderGuardian || v instanceof Warden;
-        if (boss) {
-            e.getDrops().add(Eggs.wild(pl.getConfig().getInt("drops.boss-egg-bonus", 2)));
-            Msg.send(v.getKiller(), "&5Boss đánh rơi một Trứng Cổ Đại!");
-        } else if (v instanceof Monster && rnd.nextDouble() < pl.getConfig().getDouble("drops.mob-egg-chance", 0.015)) {
+        if (v instanceof Monster && rnd.nextDouble() < pl.getConfig().getDouble("drops.mob-egg-chance", 0.015)) {
             e.getDrops().add(Eggs.wild(0));
         }
     }
@@ -84,14 +139,6 @@ public class WorldListener implements Listener {
         if (e.getCaught() instanceof Item item) {
             item.setItemStack(Eggs.wild(0));
             Msg.send(e.getPlayer(), "&dBạn câu được một Trứng Bí Ẩn!");
-        }
-    }
-
-    // Rương hầm ngục / kho báu
-    @EventHandler
-    public void onLoot(LootGenerateEvent e) {
-        if (rnd.nextDouble() < pl.getConfig().getDouble("drops.loot-egg-chance", 0.25)) {
-            e.getLoot().add(Eggs.wild(1));
         }
     }
 

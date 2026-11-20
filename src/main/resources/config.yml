@@ -27,8 +27,6 @@ campfire-hatch-speedup: 0.3     # đứng gần lửa trại (bán kính 5) ấp
 drops:
   mob-egg-chance: 0.015         # quái chết rơi trứng bí ẩn
   fishing-egg-chance: 0.03      # câu cá ra trứng bí ẩn
-  loot-egg-chance: 0.25         # rương hầm ngục/kho báu có trứng cổ đại
-  boss-egg-bonus: 2             # boss rơi trứng, cấp thưởng cao
 
 wild-chicken:
   variant-chance: 0.2           # tỉ lệ gà sinh ra ở biome đặc biệt là gà hoang
@@ -60,3 +58,11 @@ shop:
     bread: 100
     golden-carrot: 400
     golden-apple: 1000
+
+companion:
+  follow-distance: 5            # gà cách chủ xa hơn thì chạy lại gần
+  teleport-distance: 16         # xa hơn nữa thì dịch chuyển tới chủ
+  dig-minutes: 3                # gà bới đất ra hạt giống mỗi bao nhiêu phút (từ cấp 2)
+
+wildfight:
+  cooldown-seconds: 20          # đấu gà làng (Shift + chuột phải vào gà), admin không bị cooldown
