@@ -615,19 +615,140 @@ public class Gui {
     }
 
     // ================= HƯỚNG DẪN =================
+    private record Step(Material icon, String title, String[] lines) {}
+    private record Topic(String key, Material icon, String title, String desc) {}
+
+    private static Step step(Material icon, String title, String... lines) {
+        return new Step(icon, title, lines);
+    }
+
+    private static final List<Topic> TOPICS = List.of(
+            new Topic("start", Material.BOOK, "1. Bắt đầu nhanh (5 bước)", "Mới chơi? Đọc cái này trước."),
+            new Topic("get", Material.FISHING_ROD, "2. Kiếm gà ở đâu?", "Các cách có gà và trứng."),
+            new Topic("care", Material.WHEAT, "3. Chăm gà", "Cho ăn, tập luyện, nghỉ, vuốt ve."),
+            new Topic("pet", Material.LEAD, "4. Mang gà đi theo (pet)", "Gà đi theo bạn, lên cấp, kỹ năng."),
+            new Topic("egg", Material.EGG, "5. Ấp trứng & ghép gen", "Cách ra gà mới và gà xịn hơn."),
+            new Topic("fight", Material.IRON_SWORD, "6. Đấu gà", "Đấu thử, đấu gà làng, đấu người chơi."),
+            new Topic("death", Material.TOTEM_OF_UNDYING, "7. Gà chết & hồi sinh", "Chuyện gì xảy ra khi gà thua."),
+            new Topic("stats", Material.PAPER, "8. Các chỉ số là gì?", "HP, Công, Thủ, thể lực, độ no..."),
+            new Topic("faq", Material.OAK_SIGN, "9. Hỏi đáp thường gặp", "Gặp lỗi? Xem ở đây.")
+    );
+
+    private static final Map<String, List<Step>> PAGES = new HashMap<>();
+
+    static {
+        PAGES.put("start", List.of(
+                step(Material.COMMAND_BLOCK, "Mở menu", "Gõ /daga để mở menu.", "Mọi thứ đều bấm chuột,", "không cần nhớ lệnh nào."),
+                step(Material.CHICKEN_SPAWN_EGG, "Bước 1: Có gà", "Bạn cần ít nhất 1 con gà.", "Chưa có thì xem mục", "\"Kiếm gà ở đâu?\"", "hoặc mua trứng ở Cửa hàng."),
+                step(Material.EGG, "Bước 2: Ấp trứng", "Menu → Lò ấp → bấm vào quả", "trứng trong túi của bạn.", "Chờ vài phút, khi hiện chữ", "\"ĐÃ NỞ\" thì bấm để nhận gà."),
+                step(Material.HAY_BLOCK, "Bước 3: Chọn gà chiến", "Menu → Chuồng gà.", "Bấm chuột TRÁI vào con gà", "bạn muốn dùng.", "Con đó là \"gà chiến\": mọi thứ", "khác đều dùng con này."),
+                step(Material.WHEAT, "Bước 4: Cho ăn rồi tập", "Menu → Chăm sóc gà.", "Cho ăn trước, rồi bấm Tập luyện.", "Gà đói hoặc hết thể lực", "thì đánh rất yếu."),
+                step(Material.IRON_SWORD, "Bước 5: Đi đấu", "Tập một mình: Đấu thử gà máy.", "Đấu thật: Thách đấu người chơi", "(có thể cược tiền)."),
+                step(Material.LEAD, "Thêm: Mang gà theo", "Menu → Mang gà đi theo bạn.", "Gà sẽ đi theo bạn ngoài đời,", "đi dạo và đá gà khác để lên cấp.")));
+
+        PAGES.put("get", List.of(
+                step(Material.ZOMBIE_HEAD, "Giết quái", "Quái thường chết có tỉ lệ", "nhỏ rơi Trứng Bí Ẩn."),
+                step(Material.FISHING_ROD, "Câu cá", "Câu cá thỉnh thoảng", "câu được Trứng Bí Ẩn."),
+                step(Material.SNOWBALL, "Thuần gà hoang", "Ở biome tuyết, sa mạc, nấm", "có gà tên đặc biệt (hoang).", "Cầm đúng hạt, chuột phải vào gà:", "&f- Tuyết: hạt củ dền", "&f- Sa mạc: hạt dưa hấu", "&f- Nấm: hạt bí ngô", "Có thể thất bại, cứ thử lại."),
+                step(Material.LEAD, "Gà bới đất (cấp 8)", "Gà đồng hành từ cấp 8", "có tỉ lệ nhỏ bới ra", "Trứng Bí Ẩn."),
+                step(Material.IRON_SWORD, "Thắng trận", "Thắng trận đấu thật có tỉ lệ", "nhỏ nhận Trứng Cổ Đại."),
+                step(Material.EMERALD, "Mua ở Cửa hàng", "Mua Trứng Bí Ẩn hoặc", "Trứng Cổ Đại bằng tiền.", "Cần server có Vault."),
+                step(Material.GOLDEN_CARROT, "Ghép gen", "Ghép 2 gà ra Trứng Gà Lai.", "Xem mục \"Ấp trứng & ghép gen\"."),
+                step(Material.NETHER_STAR, "Nhớ nhé", "Trứng nào cũng phải đem vào", "Lò ấp mới ra gà.")));
+
+        PAGES.put("care", List.of(
+                step(Material.PAPER, "3 thanh quan trọng", "&fThể lực&7: để tập và đấu.", "&fĐộ no&7: gà đói thì yếu.", "&fTâm trạng&7: vui thì đánh mạnh.", "Xem mục \"Các chỉ số là gì?\"."),
+                step(Material.WHEAT, "Cho ăn", "Menu → Chăm sóc gà → bấm thức ăn.", "Hạt giống: +10 no", "Lúa mì, bánh mì: +25 no", "Cà rốt vàng: +35 no (có thể", "tăng thêm 1 chỉ số).", "Gà đi theo: cầm đồ ăn rồi", "chuột phải vào gà cũng được."),
+                step(Material.IRON_SWORD, "Tập luyện", "Chọn chỉ số muốn tăng.", "Mỗi lần +1 (HP được +2).", "Tốn 20 thể lực, gà cần no từ 20.", "Mỗi độ hiếm có mức tối đa riêng."),
+                step(Material.HAY_BLOCK, "Nghỉ ngơi", "Hồi 25 thể lực.", "Đứng gần BÓ RƠM (chuồng gà)", "thì hồi tới 60.", "Có chờ vài phút giữa các lần."),
+                step(Material.COOKIE, "Vuốt ve", "Tăng tâm trạng.", "Tâm trạng từ 70 trở lên:", "đánh mạnh hơn 5%.", "Dưới 20: đánh yếu đi 10%."),
+                step(Material.GOLDEN_CARROT, "Chữa thương", "Gà bị thương thì không đấu được.", "Chữa bằng 1 cà rốt vàng", "(menu Chăm sóc → Chữa thương)."),
+                step(Material.NAME_TAG, "Đổi tên", "Bấm Đổi tên rồi gõ tên mới", "vào khung chat (tối đa 16 chữ).", "Gõ \"huy\" để hủy.")));
+
+        PAGES.put("pet", List.of(
+                step(Material.LEAD, "Gọi gà ra", "Menu chính → Mang gà đi theo bạn.", "Hoặc gõ /daga mang.", "Gà bạn đang chọn sẽ đi theo bạn."),
+                step(Material.COOKIE, "Chuột phải tay không", "= Vuốt ve gà.", "Có tim bay, gà kêu và nhảy lên,", "tăng tâm trạng."),
+                step(Material.WHEAT, "Cầm đồ ăn + chuột phải", "= Cho gà ăn ngay tại chỗ.", "(hạt, lúa mì, bánh mì,", "cà rốt vàng)"),
+                step(Material.CHEST, "Shift + chuột phải", "= Mở menu Chăm sóc."),
+                step(Material.IRON_SWORD, "Đá gà làng (lên cấp)", "Đứng gần 1 con gà bình thường", "ngoài đồng, Shift + chuột phải.", "Gà bạn lao vào đấu với nó.", "Thua không mất gì, không chết.", "Thắng có thể tăng chỉ số.", "Tốn 10 thể lực."),
+                step(Material.PLAYER_HEAD, "Đấu gà người khác", "Shift + chuột phải vào gà", "của người chơi khác", "= thách đấu họ."),
+                step(Material.EXPERIENCE_BOTTLE, "Cấp độ & kỹ năng", "Gà lên cấp nhờ đấu và chăm sóc.", "&fLv.2&7: bới hạt giống cho bạn", "&fLv.4&7: giảm 50% sát thương rơi", "&fLv.6&7: mổ quái giúp bạn", "&fLv.8&7: có thể bới ra trứng", "&fLv.10&7: không còn sát thương rơi", "&fLv.15&7: may mắn + mổ mạnh x2"),
+                step(Material.NETHER_STAR, "Lưu ý", "Gà phải còn no (từ 30)", "mới dùng được kỹ năng.", "Gà chết hoặc bạn đang đấu thật", "thì gà tạm biến mất.")));
+
+        PAGES.put("egg", List.of(
+                step(Material.EGG, "Cách ấp", "Menu → Lò ấp → bấm vào quả", "trứng trong túi.", "Mỗi người có 2 ô ấp."),
+                step(Material.CLOCK, "Mất bao lâu?", "Tùy độ hiếm của gà bên trong:", "Thường 5 phút, Khá 10 phút,", "Hiếm 20 phút, Huyền Thoại 40.", "Bạn không biết trước đâu."),
+                step(Material.CAMPFIRE, "Ấp nhanh hơn", "Đứng gần LỬA TRẠI (5 block)", "khi bỏ trứng vào:", "thời gian ấp giảm 30%."),
+                step(Material.TURTLE_EGG, "Nhận gà", "Khi ô ấp hiện \"ĐÃ NỞ\"", "thì bấm vào để nhận gà.", "Gà tự vào Chuồng gà."),
+                step(Material.GOLDEN_CARROT, "Ghép gen", "Menu → Ghép gen → bấm 2 con gà.", "Mỗi con cần thể lực và no", "từ 50, và nghỉ 30 phút", "giữa các lần ghép.", "Bạn nhận Trứng Gà Lai."),
+                step(Material.NETHER_STAR, "Gà lai ra sao?", "Gà con thừa hưởng chỉ số bố mẹ.", "Có thể đột biến: độ hiếm cao hơn,", "màu lông, cựa, mào đặc biệt.", "Đêm TRĂNG TRÒN dễ đột biến hơn.")));
+
+        PAGES.put("fight", List.of(
+                step(Material.ARMOR_STAND, "Đấu thử gà máy", "Menu → Đấu thử gà máy.", "Tập một mình, không cần ai.", "Không mất gì, gà không chết.", "Tốn 20 thể lực, thắng có thưởng."),
+                step(Material.CHICKEN_SPAWN_EGG, "Đấu gà làng", "Mang gà theo, Shift + chuột phải", "vào gà bình thường.", "Tốn 10 thể lực, thắng có thể", "tăng chỉ số."),
+                step(Material.IRON_SWORD, "Thách đấu người chơi", "Menu → Thách đấu người chơi.", "Chọn người, chọn mức cược.", "Họ bấm [CHẤP NHẬN] trong chat.", "Hai người phải đứng gần nhau", "(trong 24 block)."),
+                step(Material.PAPER, "Điều kiện để đấu", "&7- Gà còn sống, không bị thương", "&7- Thể lực từ 20", "&7- Độ no từ 10", "&7- Đã chọn gà chiến"),
+                step(Material.CROSSBOW, "Trận đấu diễn ra", "Hai gà thật đánh nhau theo hiệp.", "Có né đòn và chí mạng.", "Hết máu là thua."),
+                step(Material.GOLD_INGOT, "Thắng thì được gì?", "Nhận tiền cược (trừ 5% thuế),", "kinh nghiệm cho gà,", "và có thể nhận Trứng Cổ Đại."),
+                step(Material.GOLD_BLOCK, "Bảng xếp hạng", "Menu → Bảng xếp hạng.", "Xem ai thắng nhiều nhất.")));
+
+        PAGES.put("death", List.of(
+                step(Material.SKELETON_SKULL, "Khi nào gà chết?", "Chỉ khi THUA trận đấu thật", "(thách đấu người chơi) mà", "hết máu.", "Đấu thử và đấu gà làng", "thì không bao giờ chết."),
+                step(Material.CLOCK, "Gà chết thì sao?", "Bị khóa 15 phút (mặc định):", "không đấu, tập, nghỉ, ghép được."),
+                step(Material.POTION, "Hồi sinh xong", "Gà còn YẾU 10 phút:", "mọi chỉ số chiến đấu giảm 20%."),
+                step(Material.GOLDEN_APPLE, "Hồi sinh ngay", "Menu → Chăm sóc gà →", "Hồi sinh ngay.", "Tốn 1 táo vàng.", "Gà vẫn còn yếu 10 phút."),
+                step(Material.GOLDEN_CARROT, "Bị thương", "Thắng nhưng còn dưới 25% máu,", "hoặc thua nhẹ, gà có thể bị thương.", "Chữa bằng 1 cà rốt vàng.")));
+
+        PAGES.put("stats", List.of(
+                step(Material.APPLE, "HP (máu)", "Hết máu là thua trận."),
+                step(Material.IRON_SWORD, "Công", "Sát thương gây ra.", "Cựa tốt tăng thêm Công."),
+                step(Material.SHIELD, "Thủ", "Giảm sát thương nhận vào.", "Mào tốt tăng thêm Thủ."),
+                step(Material.FEATHER, "Tốc độ", "Ra đòn trước và dễ né hơn."),
+                step(Material.RABBIT_FOOT, "May mắn", "Tăng tỉ lệ chí mạng và né."),
+                step(Material.SUGAR, "Thể lực", "Dùng để tập và đấu.", "Tự hồi dần theo thời gian", "(chỉ khi gà không quá đói)."),
+                step(Material.BREAD, "Độ no", "Giảm dần theo thời gian.", "Dưới 30: đánh yếu đi 15%.", "Dưới 20: không hồi thể lực."),
+                step(Material.COOKIE, "Tâm trạng", "70+ : đánh mạnh hơn 5%.", "Dưới 20: yếu đi 10%.", "Thắng trận thì vui, thua thì buồn."),
+                step(Material.EXPERIENCE_BOTTLE, "Cấp độ", "Mỗi cấp +1,5% mọi chỉ số", "chiến đấu. Tối đa cấp 30."),
+                step(Material.AMETHYST_SHARD, "Độ hiếm", "Thường < Khá < Hiếm < Huyền Thoại.", "Càng hiếm thì mức chỉ số tối đa", "càng cao."),
+                step(Material.NAME_TAG, "Gen", "Màu lông, cựa, mào.", "Cựa: +2 Công mỗi bậc.", "Mào: +2 Thủ mỗi bậc.", "Truyền lại cho gà con khi ghép.")));
+
+        PAGES.put("faq", List.of(
+                step(Material.BARRIER, "Gà không đi theo?", "Kiểm tra: đã chọn gà chiến chưa,", "gà còn sống không, và nơi đó", "có plugin chặn spawn gà không."),
+                step(Material.IRON_SWORD, "Không đấu được?", "Gà phải sống, không thương,", "thể lực từ 20, no từ 10.", "Thách đấu người: đứng gần nhau."),
+                step(Material.EGG, "Không ấp được trứng?", "Lò ấp có 2 ô. Nếu đầy thì nhận", "gà đã nở trước rồi ấp tiếp."),
+                step(Material.CHEST, "Chuồng gà đầy?", "Gà mới sẽ vào túi dạng vật phẩm.", "Có chỗ thì chuột phải vào gà", "đó để gửi vào chuồng."),
+                step(Material.GOLD_INGOT, "Tiền cược tính sao?", "Thua: mất tiền cược.", "Thắng: nhận gấp đôi, trừ 5% thuế.", "Hủy giữa chừng: hoàn tiền."),
+                step(Material.COMMAND_BLOCK, "Các lệnh", "&f/daga&7: mở menu", "&f/daga mang&7: gọi/cho gà về", "&f/daga thachdau <tên> [tiền]", "&f/daga chapnhan&7 hoặc &f/daga tuchoi")));
+    }
+
     public void openHelp(Player p) {
         open(p, new Menu(p, 36, "&f&lHướng dẫn chơi", m -> {
             m.background();
-            m.set(10, Ui.icon(Material.BOOK, "&e1. Bắt đầu", "&7Gõ &f/daga &7để mở menu chính.", "&7Mọi thứ đều bấm chuột, không cần nhớ lệnh.", "&7Cần có gà trước: xem mục Kiếm gà.", "&7Gà mới nở/thuần được sẽ vào Chuồng gà.", "&7Chọn 1 gà làm &agà chiến &7trong Chuồng."), null);
-            m.set(11, Ui.icon(Material.FISHING_ROD, "&e2. Kiếm gà", "&7- Giết quái: rơi Trứng Bí Ẩn (hiếm).", "&7- Câu cá có thể ra trứng.", "&7- Gà hoang ở biome tuyết/sa mạc/nấm:", "&7  cầm hạt giống riêng, chuột phải vào gà.", "&7  (tuyết: củ dền, sa mạc: dưa hấu, nấm: bí ngô)", "&7- Mua ở Cửa hàng, hoặc thắng trận."), null);
-            m.set(12, Ui.icon(Material.WHEAT, "&e3. Chăm gà", "&7Vào menu Chăm sóc gà:", "&7- Cho ăn: giữ độ no (đói quá gà đánh yếu).", "&7- Tập luyện: tăng chỉ số, tốn thể lực.", "&7- Nghỉ ngơi: hồi thể lực (gần bó rơm nhiều hơn).", "&7- Vuốt ve: tâm trạng cao đánh mạnh hơn.", "&7- Chữa thương / Hồi sinh khi cần."), null);
-            m.set(13, Ui.icon(Material.EGG, "&e4. Ấp trứng", "&7Vào Lò ấp, bấm vào trứng trong túi.", "&7Trứng càng hiếm ấp càng lâu (5-40 phút).", "&7Đứng gần lửa trại: ấp nhanh hơn 30%.", "&7Đêm trăng tròn: dễ ra gà đột biến.", "&7Trứng nở xong bấm để nhận gà."), null);
-            m.set(14, Ui.icon(Material.GOLDEN_CARROT, "&e5. Ghép gen", "&7Chọn 2 gà trong menu Ghép gen.", "&7Cần thể lực và no từ 50, nghỉ 30 phút/lần.", "&7Nhận Trứng Gà Lai, con thừa hưởng gen bố mẹ,", "&7có thể đột biến độ hiếm, màu lông, cựa, mào."), null);
-            m.set(15, Ui.icon(Material.IRON_SWORD, "&e6. Đấu", "&7Thách đấu người chơi: chọn đối thủ + mức cược.", "&7Đối thủ bấm [CHẤP NHẬN] trong chat.", "&72 gà thật xuất hiện và đánh nhau.", "&7Thắng nhận tiền (trừ thuế sàn).", "&7Muốn tập một mình: Đấu thử gà máy,", "&7không mất gì, thắng có thưởng."), null);
-            m.set(16, Ui.icon(Material.TOTEM_OF_UNDYING, "&e7. Chết & hồi sinh", "&7Thua mà hết máu thì gà chết 15 phút,", "&7sau đó còn yếu 10 phút (chỉ số -20%).", "&7Hồi sinh ngay: 1 táo vàng.", "&7Thắng nhưng còn ít máu / thua nhẹ: có thể", "&7bị thương, chữa bằng 1 cà rốt vàng."), null);
-            m.set(20, Ui.icon(Material.LEAD, "&e0. Gà đồng hành", "&7Bấm &fMang gà đi theo bạn &7ở menu chính:", "&7gà chiến sẽ đi theo bạn ngoài đời thật.", "&7- Chuột phải tay không: vuốt ve. Cầm hạt/lúa/bánh: cho ăn.", "&7- Shift + chuột phải: mở menu chăm sóc.", "&7- Gà lên cấp thì mở kỹ năng: bới đất ra hạt giống,", "&7  đỡ rơi, mổ quái giúp bạn, hào quang may mắn...", "&7  (xem chi tiết trong menu Chăm sóc).", "&7- Shift + chuột phải vào gà làng:", "&7  gà bạn đấu với nó, thắng có thể tăng chỉ số", "&7  (tốn 10 thể lực, không chết).", "&7- Shift + chuột phải vào gà của người khác:", "&7  thách đấu họ.", "&7- Dắt gà đi dạo lâu: tâm trạng tăng dần."), null);
-            m.set(22, Ui.icon(Material.NETHER_STAR, "&e8. Mẹo", "&7- Gà Huyền Thoại có chỉ số trần cao nhất.", "&7- Luôn để gà no và còn thể lực trước khi đấu.", "&7- Chuột phải vào vật phẩm gà để gửi vào chuồng.", "&7- Chuồng đầy thì gà nở ra sẽ vào túi."), null);
+            m.set(4, Ui.icon(Material.WRITABLE_BOOK, "&6&lĐÁ GÀ LÀ GÌ?",
+                    "&7Bạn nuôi gà, chăm gà, cho gà đi đấu", "&7và lên cấp để mạnh dần.",
+                    "&7Gõ &f/daga &7là mở menu, mọi thứ bấm chuột.", "", "&eBấm một mục bên dưới để xem chi tiết."), null);
+            int[] slots = {10, 11, 12, 13, 14, 15, 16, 19, 20};
+            for (int i = 0; i < TOPICS.size() && i < slots.length; i++) {
+                final Topic t = TOPICS.get(i);
+                m.set(slots[i], Ui.icon(t.icon(), "&e&l" + t.title(), "&7" + t.desc(), "", "&aBấm để xem"), e -> openHelpPage(p, t.key(), t.title()));
+            }
             back(m, 31, p);
+        }));
+    }
+
+    private void openHelpPage(Player p, String key, String title) {
+        List<Step> steps = PAGES.get(key);
+        if (steps == null) { openHelp(p); return; }
+        open(p, new Menu(p, 36, "&f&l" + title, m -> {
+            m.background();
+            int[] slots = {10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25};
+            for (int i = 0; i < steps.size() && i < slots.length; i++) {
+                Step s = steps.get(i);
+                List<String> lore = new ArrayList<>();
+                for (String l : s.lines()) lore.add("&7" + l);
+                m.set(slots[i], Ui.icon(s.icon(), "&e&l" + s.title(), lore.toArray(new String[0])), null);
+            }
+            m.set(31, Ui.icon(Material.ARROW, "&e« Quay lại Hướng dẫn"), e -> openHelp(p));
         }));
     }
 
