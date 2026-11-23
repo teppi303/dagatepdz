@@ -1,8 +1,10 @@
 package vn.daga;
 
 import net.kyori.adventure.text.Component;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.Particle;
 import org.bukkit.entity.Chicken;
 import org.bukkit.entity.Player;
@@ -21,6 +23,7 @@ public class Gui {
     private final Map<String, Long> cds = new HashMap<>();
     private final Set<UUID> renaming = ConcurrentHashMap.newKeySet();
     private final Map<UUID, String> breedSel = new HashMap<>();
+    private final Map<UUID, Double> testRefunds = new HashMap<>();
 
     private static final int[] TOP_SLOTS = {10, 11, 12, 13, 14, 15, 16, 19, 20, 21};
     private static final Material[] SEEDS = {Material.WHEAT_SEEDS, Material.BEETROOT_SEEDS, Material.MELON_SEEDS, Material.PUMPKIN_SEEDS};
@@ -113,7 +116,7 @@ public class Gui {
         boolean out = pl.companions().isOut(p);
         m.set(13, Ui.icon(Material.LEAD, out ? "&a&lGà đang đi theo bạn" : "&e&lMang gà đi theo bạn",
                 out ? "&7Bấm để cho gà về nghỉ." : "&7Gà chiến sẽ đi theo bạn ngoài đời.",
-                "&7Chuột phải: vuốt ve / cho ăn. Shift + chuột phải: chăm sóc.", "&7Shift + chuột phải vào gà khác: đấu để lên cấp."),
+                "&7Chuột phải: vuốt ve / cho ăn. Shift + chuột phải: chăm sóc.", "&7Shift + chuột phải vào gà làng: đấu để lên cấp."),
                 e -> { pl.companions().toggle(p); m.refresh(); });
         m.set(19, Ui.icon(Material.HAY_BLOCK, "&e&lChuồng gà", "&7Xem tất cả gà của bạn,", "&7chọn gà chiến, rút gà ra túi.", "", "&aBấm để mở"), e -> openCoop(p));
         m.set(20, Ui.icon(Material.WHEAT, "&a&lChăm sóc gà", "&7Cho ăn, tập luyện, nghỉ ngơi,", "&7vuốt ve, chữa thương, hồi sinh.", "", "&aBấm để mở"), e -> openCare(p));
@@ -569,6 +572,33 @@ public class Gui {
         m.refresh();
     }
 
+    // ================= MENU KHI BẤM VÀO PET NGƯỜI KHÁC =================
+    public void openPetMenu(Player viewer, Player owner) {
+        if (viewer.equals(owner)) { openCare(viewer); return; }
+        open(viewer, new Menu(viewer, 27, "&6&lGà của " + owner.getName(), m -> {
+            m.background();
+            ChickenData d = st().active(owner.getUniqueId());
+            if (d != null) {
+                d.refresh();
+                m.set(4, d.toItem(), null);
+            } else {
+                m.set(4, Ui.icon(Material.BARRIER, "&7" + owner.getName() + " chưa có gà chiến"), null);
+            }
+            m.set(11, Ui.icon(Material.IRON_SWORD, "&a&lThách đấu giao hữu",
+                    "&7Không cược tiền.", "&7Gà của bạn đấu với gà của &f" + owner.getName() + "&7.",
+                    "", "&aBấm để gửi lời thách đấu"), e -> {
+                viewer.closeInventory();
+                if (owner.isOnline()) pl.fights().challenge(viewer, owner, 0);
+            });
+            m.set(15, Ui.icon(Material.GOLD_INGOT, "&6&lThách đấu có cược",
+                    "&7Chọn mức tiền cược.", pl.hook() == null ? "&cServer chưa có economy (Vault)" : "&aBấm để chọn mức cược"), e -> {
+                if (pl.hook() == null) { Msg.send(viewer, "&cServer chưa có economy (Vault), chỉ đấu giao hữu được."); return; }
+                if (owner.isOnline()) openBet(viewer, owner);
+            });
+            m.set(22, Ui.icon(Material.BARRIER, "&cĐóng"), e -> viewer.closeInventory());
+        }));
+    }
+
     // ================= THÁCH ĐẤU =================
     public void openChallenge(Player p) {
         open(p, new Menu(p, 54, "&c&lChọn đối thủ", m -> fillChallenge(m, p)));
@@ -721,7 +751,7 @@ public class Gui {
                 step(Material.HAY_BLOCK, "Bước 3: Chọn gà chiến", "Menu → Chuồng gà.", "Bấm chuột TRÁI vào con gà", "bạn muốn dùng.", "Con đó là \"gà chiến\": mọi thứ", "khác đều dùng con này."),
                 step(Material.WHEAT, "Bước 4: Cho ăn rồi tập", "Menu → Chăm sóc gà.", "Cho ăn trước, rồi bấm Tập luyện.", "Gà đói hoặc hết thể lực", "thì đánh rất yếu."),
                 step(Material.IRON_SWORD, "Bước 5: Đi đấu", "Tập một mình: Đấu thử gà máy.", "Đấu thật: Thách đấu người chơi", "(có thể cược tiền)."),
-                step(Material.LEAD, "Thêm: Mang gà theo", "Menu → Mang gà đi theo bạn.", "Gà sẽ đi theo bạn ngoài đời,", "đi dạo và đá gà khác để lên cấp.")));
+                step(Material.LEAD, "Thêm: Mang gà theo", "Menu → Mang gà đi theo bạn.", "Gà sẽ đi theo bạn ngoài đời,", "đi dạo và đá gà làng để lên cấp.")));
 
         PAGES.put("get", List.of(
                 step(Material.ZOMBIE_HEAD, "Giết quái", "Quái thường chết có tỉ lệ", "nhỏ rơi Trứng Bí Ẩn."),
@@ -749,7 +779,7 @@ public class Gui {
                 step(Material.WHEAT, "Cầm đồ ăn + chuột phải", "= Cho gà ăn ngay tại chỗ.", "(hạt, lúa mì, bánh mì,", "cà rốt vàng)"),
                 step(Material.CHEST, "Shift + chuột phải", "= Mở menu Chăm sóc."),
                 step(Material.IRON_SWORD, "Đá gà làng (lên cấp)", "Đứng gần 1 con gà bình thường", "ngoài đồng, Shift + chuột phải.", "Gà bạn lao vào đấu với nó.", "Thua không mất gì, không chết.", "Thắng có thể tăng chỉ số.", "Tốn 10 thể lực."),
-                step(Material.PLAYER_HEAD, "Đấu gà người khác", "Shift + chuột phải vào gà", "của người chơi khác", "= thách đấu họ."),
+                step(Material.PLAYER_HEAD, "Gà của người khác", "Chuột phải vào gà đi theo", "của người chơi khác: hiện menu", "xem gà và THÁCH ĐẤU họ", "(giao hữu hoặc có cược)."),
                 step(Material.EXPERIENCE_BOTTLE, "Cấp độ & kỹ năng", "Gà lên cấp nhờ đấu và chăm sóc.", "&fLv.2&7: bới hạt giống cho bạn", "&fLv.4&7: giảm 50% sát thương rơi", "&fLv.6&7: mổ quái giúp bạn", "&fLv.8&7: có thể bới ra trứng", "&fLv.10&7: không còn sát thương rơi", "&fLv.15&7: may mắn + mổ mạnh x2"),
                 step(Material.NETHER_STAR, "Lưu ý", "Gà phải còn no (từ 30)", "mới dùng được kỹ năng.", "Gà chết hoặc bạn đang đấu thật", "thì gà tạm biến mất.")));
 
@@ -899,7 +929,52 @@ public class Gui {
         m.set(38, Ui.icon(Material.SAND, "&eGà Sa Mạc", "&7Hạt dưa hấu"), e -> spawnWild(p, "desert"));
         m.set(39, Ui.icon(Material.RED_MUSHROOM, "&dGà Nấm", "&7Hạt bí ngô"), e -> spawnWild(p, "mushroom"));
 
+        m.set(45, Ui.icon(Material.PAPER, "&e&lTEST CƯỢC TIỀN THẬT (1 mình cũng thử được)",
+                "&7Trừ tiền cược thật, hiện số dư trước/sau,", "&7rồi tự HOÀN LẠI sau 5 giây."), null);
+        double[] testAmounts = {100, 1000, 10000};
+        for (int i = 0; i < testAmounts.length; i++) {
+            final double amt = testAmounts[i];
+            m.set(46 + i, Ui.icon(Material.GOLD_NUGGET, "&6Test cược " + (long) amt, "&7Kiểm tra trừ tiền / hoàn tiền / thuế."), e -> betTest(p, amt));
+        }
         back(m, 49, p);
+    }
+
+    private void betTest(Player p, double amount) {
+        VaultHook h = pl.hook();
+        if (h == null) { Msg.send(p, "&cServer chưa có economy (Vault)."); return; }
+        if (testRefunds.containsKey(p.getUniqueId())) { Msg.send(p, "&cĐang có một lần test, đợi nó hoàn tiền xong (5 giây)."); return; }
+        if (!h.has(p, amount)) { Msg.send(p, "&cBạn không đủ " + (long) amount + " để test."); return; }
+        double before = h.balance(p);
+        if (!h.withdraw(p, amount)) { Msg.send(p, "&cKhông trừ được tiền, economy báo lỗi."); return; }
+        testRefunds.put(p.getUniqueId(), amount);
+        double after = h.balance(p);
+        double pot = amount * 2;
+        double tax = pot * pl.getConfig().getDouble("tax-percent", 5) / 100.0;
+        Msg.send(p, "&e[TEST CƯỢC] &7Số dư trước: &f" + (long) before + " &7→ sau khi trừ: &f" + (long) after
+                + " &8(bị trừ &6" + (long) amount + "&8)");
+        Msg.send(p, "&e[TEST CƯỢC] &7Nếu thắng thật, người thắng nhận &f" + (long) (pot - tax) + " &7(tổng " + (long) pot
+                + ", thuế " + (long) tax + "). Tiền test sẽ &ahoàn lại sau 5 giây&7.");
+        final UUID u = p.getUniqueId();
+        Bukkit.getScheduler().runTaskLater(pl, () -> refundTest(u), 100L);
+    }
+
+    private void refundTest(UUID u) {
+        Double boxed = testRefunds.remove(u);
+        if (boxed == null) return;
+        final double amt = boxed;
+        VaultHook h = pl.hook();
+        if (h == null) return;
+        OfflinePlayer op = Bukkit.getOfflinePlayer(u);
+        h.deposit(op, amt);
+        Player p = Bukkit.getPlayer(u);
+        if (p != null && p.isOnline()) {
+            Msg.send(p, "&e[TEST CƯỢC] &aĐã hoàn lại &6" + (long) amt + "&a. Số dư hiện tại: &f" + (long) h.balance(p));
+        }
+    }
+
+    /** Hoàn tiền mọi lần test đang chờ (khi tắt plugin). */
+    public void shutdown() {
+        for (UUID u : new ArrayList<>(testRefunds.keySet())) refundTest(u);
     }
 
     private void spawnWild(Player p, String type) {

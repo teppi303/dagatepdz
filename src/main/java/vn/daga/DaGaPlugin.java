@@ -59,6 +59,7 @@ public class DaGaPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (gui != null) gui.shutdown();
         if (careWatch != null) careWatch.stop();
         if (companions != null) companions.dismissAll();
         if (fights != null) fights.shutdown();

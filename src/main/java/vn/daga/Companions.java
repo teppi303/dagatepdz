@@ -84,7 +84,7 @@ public class Companions {
             Msg.send(p, "&7Gà đã về nghỉ.");
         } else if (summon(p)) {
             Msg.send(p, "&aGà đã đi theo bạn! &7Chuột phải tay không: vuốt ve. Cầm hạt/lúa/bánh: cho ăn. "
-                    + "Shift + chuột phải: chăm sóc. Shift + chuột phải vào gà khác: đấu để lên cấp.");
+                    + "Shift + chuột phải: chăm sóc. Shift + chuột phải vào gà làng: đấu để lên cấp. Chuột phải vào gà người khác: thách đấu.");
         }
     }
 
@@ -232,7 +232,13 @@ public class Companions {
         for (UUID u : new ArrayList<>(out.keySet())) {
             Player owner = Bukkit.getPlayer(u);
             Chicken c = out.get(u);
-            if (owner == null || !owner.isOnline() || c == null || !c.isValid()) { dismiss(u); continue; }
+            if (owner == null || !owner.isOnline()) { dismiss(u); continue; }
+            if (c == null || !c.isValid()) {
+                // gà bị mất (chunk tải lại, plugin dọn thực thể...): gọi lại gần chủ
+                dismiss(u);
+                if (!pl.fights().inMatch(owner)) summon(owner);
+                continue;
+            }
             ChickenData d = pl.store().active(u);
             if (d == null || d.dead() || !d.id.equals(ids.get(u))) {
                 dismiss(u);

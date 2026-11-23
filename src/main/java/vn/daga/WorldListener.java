@@ -10,9 +10,11 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockDispenseEvent;
 import org.bukkit.event.entity.CreatureSpawnEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntityDropItemEvent;
+import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
 import org.bukkit.event.player.PlayerFishEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
@@ -130,6 +132,32 @@ public class WorldListener implements Listener {
         }
     }
 
+    // Gà đồng hành không ai đánh được (kể cả người chơi chế độ sáng tạo, quái, nổ, lửa...)
+    @EventHandler(priority = org.bukkit.event.EventPriority.HIGH)
+    public void onPetDamage(EntityDamageEvent e) {
+        var pdc = e.getEntity().getPersistentDataContainer();
+        if (pdc.has(DaGaPlugin.COMPANION_KEY, PersistentDataType.STRING)) {
+            EntityDamageEvent.DamageCause c = e.getCause();
+            if (c == EntityDamageEvent.DamageCause.VOID || c == EntityDamageEvent.DamageCause.KILL) return;
+            e.setCancelled(true);
+            return;
+        }
+        // gà đang đấu: người chơi không đánh xen vào được (plugin vẫn tự "giết" để chạy hoạt ảnh)
+        if (pdc.has(DaGaPlugin.FIGHT_KEY, PersistentDataType.BYTE)
+                && e instanceof EntityDamageByEntityEvent be && be.getDamager() instanceof Player) {
+            e.setCancelled(true);
+        }
+    }
+
+    // Quái không nhắm vào gà đồng hành
+    @EventHandler
+    public void onPetTarget(EntityTargetLivingEntityEvent e) {
+        LivingEntity t = e.getTarget();
+        if (t != null && t.getPersistentDataContainer().has(DaGaPlugin.COMPANION_KEY, PersistentDataType.STRING)) {
+            e.setCancelled(true);
+        }
+    }
+
     @EventHandler
     public void onFall(EntityDamageEvent e) {
         if (!(e.getEntity() instanceof Player p)) return;
@@ -160,17 +188,14 @@ public class WorldListener implements Listener {
             }
             Player op = Bukkit.getPlayer(owner);
             if (op == null) return;
-            ChickenData od = pl.store().active(owner);
-            Msg.send(p, "&7Gà của &f" + op.getName() + "&7: " + (od == null ? "?" : od.rarity.color + od.name + " &eLv." + od.level + " &7(" + od.rarity.tag() + "&7)"));
-            if (p.isSneaking()) pl.fights().challenge(p, op, 0);
-            else Msg.send(p, "&8Shift + chuột phải để thách đấu gà này.");
+            pl.gui().openPetMenu(p, op);   // menu xem gà + thách đấu
             return;
         }
         if (pdc.has(DaGaPlugin.WILD_KEY, PersistentDataType.STRING)) return;   // để onTame xử lý
         if (p.isSneaking()) {
             e.setCancelled(true);
             if (!pl.companions().isOut(p)) {
-                Msg.send(p, "&7Hãy mang gà theo (menu &e/daga &7→ Mang gà đi theo bạn) rồi Shift + chuột phải vào gà khác để đấu.");
+                Msg.send(p, "&7Hãy mang gà theo (menu &e/daga &7→ Mang gà đi theo bạn) rồi Shift + chuột phải vào gà làng để đấu.");
                 return;
             }
             if (ch.isDead()) return;

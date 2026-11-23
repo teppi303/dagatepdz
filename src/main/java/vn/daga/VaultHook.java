@@ -31,6 +31,10 @@ public class VaultHook {
         eco.depositPlayer(p, amount);
     }
 
+    public double balance(OfflinePlayer p) {
+        return eco.getBalance(p);
+    }
+
     public String format(double amount) {
         return eco.format(amount);
     }

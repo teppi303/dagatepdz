@@ -193,6 +193,10 @@ public class FightManager {
             if (!h.withdraw(a, bet)) { Msg.send(b, "&cKhông trừ được tiền của " + a.getName()); return; }
             if (!h.withdraw(b, bet)) { h.deposit(a, bet); Msg.send(b, "&cKhông trừ được tiền của bạn."); return; }
         }
+        if (bet > 0 && plugin.hook() != null) {
+            Msg.send(a, "&7Đã trừ &6" + fmt(bet) + " &7tiền cược. Số dư còn: &f" + fmt(plugin.hook().balance(a)));
+            Msg.send(b, "&7Đã trừ &6" + fmt(bet) + " &7tiền cược. Số dư còn: &f" + fmt(plugin.hook().balance(b)));
+        }
         Match m = new Match(a, b, ca, cb, bet, arena);
         active.put(a.getUniqueId(), m);
         active.put(b.getUniqueId(), m);
@@ -566,7 +570,8 @@ public class FightManager {
             announce("&6[Đá gà] &f" + p[w].getName() + " &7đã thắng &f" + p[l].getName() + (bet > 0 ? " &7và nhận &6" + fmt(bet * 2) : "") + "&7!");
             if (died) say("&4☠ &c" + c[l].name + " đã gục ngã!");
             if (farm) say("&7(Đấu liên tiếp cùng một đối thủ: không nhận kinh nghiệm, trứng thưởng và không tính xếp hạng.)");
-            if (prize > 0) Msg.raw(p[w], Msg.PREFIX + "&aBạn nhận được &6" + fmt(prize) + " &7(đã trừ thuế sàn).");
+            if (prize > 0) Msg.raw(p[w], Msg.PREFIX + "&aBạn nhận được &6" + fmt(prize) + " &7(đã trừ thuế sàn). Số dư: &f" + fmt(h.balance(p[w])));
+            if (bet > 0 && h != null) Msg.raw(p[l], Msg.PREFIX + "&cBạn thua và mất &6" + fmt(bet) + " &ctiền cược. Số dư: &f" + fmt(h.balance(p[l])));
             if (died) kill(l);
             if (valid(w)) {
                 ents[w].getWorld().spawnParticle(Particle.HEART, ents[w].getLocation().add(0, 1, 0), 8, 0.3, 0.3, 0.3, 0);
