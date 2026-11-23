@@ -14,22 +14,28 @@ public class DaGaPlugin extends JavaPlugin {
     public static NamespacedKey WILD_KEY;
     public static NamespacedKey FIGHT_KEY;
     public static NamespacedKey COMPANION_KEY;
+    public static NamespacedKey NODROP_KEY;
 
     private VaultHook hook;
     private DataStore store;
     private FightManager fights;
     private Gui gui;
     private Companions companions;
+    private CareWatch careWatch;
     private final Random rnd = new Random();
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        getConfig().options().copyDefaults(true);   // thêm các mục config mới vào file cũ
+        saveConfig();
+        applyConfig();
         ChickenData.KEY = new NamespacedKey(this, "chicken");
         Eggs.KEY = new NamespacedKey(this, "egg");
         WILD_KEY = new NamespacedKey(this, "wild");
         FIGHT_KEY = new NamespacedKey(this, "fight");
         COMPANION_KEY = new NamespacedKey(this, "companion");
+        NODROP_KEY = new NamespacedKey(this, "nodrop");
 
         hook = VaultHook.create();
         if (hook == null) getLogger().warning("Không thấy Vault/economy: tính năng cược tiền sẽ tắt.");
@@ -39,6 +45,7 @@ public class DaGaPlugin extends JavaPlugin {
         fights = new FightManager(this);
         gui = new Gui(this);
         companions = new Companions(this);
+        careWatch = new CareWatch(this);
 
         PluginCommand cmd = getCommand("daga");
         DaGaCommand ex = new DaGaCommand(this);
@@ -52,9 +59,10 @@ public class DaGaPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (careWatch != null) careWatch.stop();
         if (companions != null) companions.dismissAll();
         if (fights != null) fights.shutdown();
-        if (store != null) store.save();
+        if (store != null) store.flushNow();
     }
 
     public VaultHook hook() { return hook; }
@@ -62,10 +70,22 @@ public class DaGaPlugin extends JavaPlugin {
     public FightManager fights() { return fights; }
     public Random rnd() { return rnd; }
     public Gui gui() { return gui; }
+
+    public void reloadAll() {
+        reloadConfig();
+        applyConfig();
+    }
+
+    private void applyConfig() {
+        ChickenData.STARVE_LIMIT_MS = (long) (getConfig().getDouble("neglect.starve-hours", 168) * 3600000L);
+    }
     public Companions companions() { return companions; }
+    public CareWatch careWatch() { return careWatch; }
 
     /** Cộng kinh nghiệm cho gà, báo lên cấp và kỹ năng mới. */
     public void giveXp(Player p, ChickenData d, int amount) {
+        amount = (int) Math.round(amount * getConfig().getDouble("xp-multiplier", 1.0));
+        if (amount <= 0) return;
         int old = d.level;
         int ups = d.addXp(amount);
         if (ups <= 0) return;

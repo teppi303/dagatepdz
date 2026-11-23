@@ -43,6 +43,18 @@ public class ChickenData {
     public int mood = 60;
     public int level = 1;
     public int xp = 0;
+    public long starveSince = 0;              // thời điểm gà bắt đầu đói lả (no = 0); 0 = không đói lả
+    public long graveAt = 0;                  // > 0: gà đã chết hẳn, chỉ còn là mộ
+    public String graveCause = "";
+    public long bornAt = System.currentTimeMillis();
+    public transient int warned = 0;          // cấp cảnh báo đã gửi (không lưu)
+    public static long STARVE_LIMIT_MS = 168 * 3600000L;
+    private static final String[] EPITAPHS = {
+            "Cục ta cục tác, hẹn gặp lại kiếp sau.",
+            "Mong nơi ấy có bãi thóc vô tận.",
+            "Một chú gà dũng cảm, mãi trong tim chủ.",
+            "Đã gáy hết mình rồi, hãy yên nghỉ."
+    };
     public static final int MAX_LEVEL = 30;
     public long moodStamp = System.currentTimeMillis();
     public static final double WEAK = 0.8;
@@ -168,12 +180,15 @@ public class ChickenData {
 
     /** Cập nhật đói/thể lực theo thời gian thực. */
     public void refresh() {
+        if (grave()) return;
         long now = System.currentTimeMillis();
         long pts = (now - hungerStamp) / (6 * 60000L);
         if (pts > 0) {
             hunger = (int) Math.max(0, hunger - pts);
             hungerStamp += pts * 6 * 60000L;
         }
+        if (hunger > 0) starveSince = 0;
+        else if (starveSince == 0) starveSince = now;
         long mm = (now - moodStamp) / (8 * 60000L);
         if (mm > 0) {
             mood = (int) Math.max(0, mood - mm);
@@ -186,6 +201,22 @@ public class ChickenData {
         }
     }
 
+    /** Đảm bảo dữ liệu hợp lệ (tránh lỗi nếu dữ liệu bị hỏng). */
+    private void clamp() {
+        color = Math.max(0, Math.min(COLORS.length - 1, color));
+        spur = Math.max(0, Math.min(SPURS.length - 1, spur));
+        comb = Math.max(0, Math.min(COMBS.length - 1, comb));
+        level = Math.max(1, Math.min(MAX_LEVEL, level));
+        xp = Math.max(0, xp);
+        hunger = Math.max(0, Math.min(100, hunger));
+        mood = Math.max(0, Math.min(100, mood));
+        maxSta = Math.max(1, maxSta);
+        sta = Math.max(0, Math.min(maxSta, sta));
+        for (int i = 0; i < st.length; i++) st[i] = Math.max(1, st[i]);
+        if (name == null || name.isBlank()) name = "Gà";
+        if (rarity == null) rarity = Rarity.THUONG;
+    }
+
     public String serialize() {
         String n = name.replace(";", "").replace("=", "").replace("|", "");
         return String.join(";",
@@ -193,7 +224,9 @@ public class ChickenData {
                 "st=" + st[0] + "," + st[1] + "," + st[2] + "," + st[3] + "," + st[4],
                 "ms=" + maxSta, "s=" + sta, "ss=" + staStamp, "h=" + hunger, "hs=" + hungerStamp,
                 "c=" + color, "sp=" + spur, "cb=" + comb, "w=" + wins, "l=" + losses, "g=" + gen,
-                "inj=" + injuredUntil, "br=" + breedReady, "du=" + deadUntil, "wu=" + weakUntil, "mo=" + mood, "mos=" + moodStamp, "lv=" + level, "xp=" + xp);
+                "inj=" + injuredUntil, "br=" + breedReady, "du=" + deadUntil, "wu=" + weakUntil, "mo=" + mood, "mos=" + moodStamp, "lv=" + level, "xp=" + xp,
+                "sn=" + starveSince, "gv=" + graveAt, "gc=" + (graveCause == null ? "" : graveCause.replace(";", "").replace("=", "").replace("|", "")),
+                "bn=" + bornAt);
     }
 
     public static ChickenData parse(String raw) {
@@ -230,9 +263,14 @@ public class ChickenData {
                     case "mos" -> c.moodStamp = Long.parseLong(v);
                     case "lv" -> c.level = Integer.parseInt(v);
                     case "xp" -> c.xp = Integer.parseInt(v);
+                    case "sn" -> c.starveSince = Long.parseLong(v);
+                    case "gv" -> c.graveAt = Long.parseLong(v);
+                    case "gc" -> c.graveCause = v;
+                    case "bn" -> c.bornAt = Long.parseLong(v);
                     default -> { }
                 }
             }
+            c.clamp();
             return c;
         } catch (Exception e) {
             return null;
@@ -252,19 +290,61 @@ public class ChickenData {
         l.add("&7Ngoại hình: &f" + COLORS[color] + " &8| &f" + SPURS[spur] + " &8| &f" + COMBS[comb]);
         l.add("&cHP &f" + st[HP] + " &8| &6Công &f" + st[ATK] + " &8| &9Thủ &f" + st[DEF]);
         l.add("&bTốc độ &f" + st[SPD] + " &8| &dMay mắn &f" + st[LUCK]);
-        l.add("&aThể lực &f" + sta + "/" + maxSta + " &8| &eNo &f" + hunger + "/100 &8| &dTâm trạng &f" + mood + "/100");
+        l.add("&aThể lực &f" + sta + "/" + maxSta + " " + Ui.bar(sta, maxSta));
+        l.add("&eĐộ no &f" + hunger + "/100 " + Ui.bar(hunger, 100));
+        l.add("&dTâm trạng &f" + mood + "/100 " + Ui.bar(mood, 100));
         l.add("&7Thắng/Thua: &a" + wins + "&7/&c" + losses);
         if (dead()) {
             long left = (deadUntil - System.currentTimeMillis()) / 60000L + 1;
-            l.add("&4&l☠ ĐÃ CHẾT &7- hồi sinh sau ~" + left + " phút (hoặc /daga hoisinh)");
+            l.add("&4&l☠ ĐÃ CHẾT &7- hồi sinh sau ~" + left + " phút");
+            l.add("&7Hồi sinh ngay: menu Chăm sóc (1 táo vàng)");
         } else if (weak()) {
             long left = (weakUntil - System.currentTimeMillis()) / 60000L + 1;
             l.add("&5Còn yếu sau khi hồi sinh (~" + left + " phút), chỉ số giảm 20%");
         }
         if (injured()) {
             long left = (injuredUntil - System.currentTimeMillis()) / 60000L + 1;
-            l.add("&4Đang bị thương (~" + left + " phút) &7- dùng /daga chua");
+            l.add("&4Đang bị thương (~" + left + " phút)");
+            l.add("&7Chữa: menu Chăm sóc (1 cà rốt vàng)");
         }
+        if (starveSince > 0 && !grave()) {
+            double left = Math.max(0, STARVE_LIMIT_MS - (System.currentTimeMillis() - starveSince)) / 3600000.0;
+            l.add("&4⚠ Đói lả! Không cho ăn thì chết sau ~" + fmtHours(left) + " (tính cả lúc offline)");
+        }
+        return l;
+    }
+
+    /** 5.5 giờ / 3.2 ngày cho dễ đọc. */
+    public static String fmtHours(double hours) {
+        if (hours >= 48) return (Math.round(hours / 24.0 * 10) / 10.0) + " ngày";
+        return (Math.round(hours * 10) / 10.0) + " giờ";
+    }
+
+    public boolean grave() {
+        return graveAt > 0;
+    }
+
+    /** Gà chết hẳn: chỉ còn lại mộ trong ô chuồng. */
+    public void bury(String cause) {
+        graveAt = System.currentTimeMillis();
+        graveCause = cause;
+        deadUntil = 0;
+        injuredUntil = 0;
+        weakUntil = 0;
+        starveSince = 0;
+        warned = 0;
+    }
+
+    public List<String> epitaph() {
+        List<String> l = new ArrayList<>();
+        l.add("&7Ở đây yên nghỉ &f" + name);
+        l.add("&7" + rarity.tag() + " &8| &7Cấp &f" + level + " &8| &7Đời &f" + gen);
+        l.add("&7Chiến tích: &a" + wins + " thắng &8/ &c" + losses + " thua");
+        long days = Math.max(0, (graveAt - bornAt) / 86400000L);
+        l.add("&7Đã bên bạn khoảng &f" + days + " &7ngày");
+        l.add("&7Mất ngày &f" + new java.text.SimpleDateFormat("dd/MM/yyyy").format(new java.util.Date(graveAt))
+                + (graveCause == null || graveCause.isEmpty() ? "" : " &8- &7" + graveCause));
+        l.add("&8\"" + EPITAPHS[Math.abs(id.hashCode()) % EPITAPHS.length] + "\"");
         return l;
     }
 

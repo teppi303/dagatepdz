@@ -38,6 +38,7 @@ public class Companions {
     private final Map<UUID, Long> nextDig = new HashMap<>();
     private final Map<UUID, Long> nextPeck = new HashMap<>();
     private final Map<UUID, Long> lastPet = new HashMap<>();
+    private final Map<UUID, Location> lastPos = new HashMap<>();
     private final Set<UUID> paused = new HashSet<>();
     private final BukkitTask task;
     private int ticks = 0;
@@ -106,9 +107,14 @@ public class Companions {
                 c.customName(Msg.c(label(d, p)));
                 c.getPersistentDataContainer().set(DaGaPlugin.COMPANION_KEY, PersistentDataType.STRING, p.getUniqueId().toString());
             });
+            if (!ch.isValid()) {
+                Msg.send(p, "&cKhông triệu hồi được gà ở đây (có thể plugin khác đang chặn spawn gà).");
+                return false;
+            }
             out.put(p.getUniqueId(), ch);
             ids.put(p.getUniqueId(), d.id);
             nextDig.put(p.getUniqueId(), System.currentTimeMillis() + digMs());
+            lastPos.put(p.getUniqueId(), p.getLocation().clone());
             return true;
         } catch (Exception ex) {
             Msg.send(p, "&cKhông triệu hồi được gà ở đây (có thể plugin khác đang chặn spawn gà).");
@@ -120,7 +126,13 @@ public class Companions {
         Chicken c = out.remove(u);
         ids.remove(u);
         nextDig.remove(u);
+        lastPos.remove(u);
         if (c != null && c.isValid()) c.remove();
+    }
+
+    /** Cho gà đồng hành về nếu đó đúng là con gà có id này (ví dụ gà vừa chết). */
+    public void dismissIfChicken(UUID owner, String chickenId) {
+        if (chickenId != null && chickenId.equals(ids.get(owner))) dismiss(owner);
     }
 
     public void refresh(Player p) {
@@ -144,6 +156,8 @@ public class Companions {
     public void forget(Player p) {
         paused.remove(p.getUniqueId());
         dismiss(p.getUniqueId());
+        nextPeck.remove(p.getUniqueId());
+        lastPet.remove(p.getUniqueId());
     }
 
     public void dismissAll() {
@@ -170,6 +184,7 @@ public class Companions {
     }
 
     public void interact(Player p, Chicken c) {
+        if (pl.fights().inMatch(p)) return;
         ChickenData d = pl.store().active(p.getUniqueId());
         if (d == null) return;
         d.refresh();
@@ -178,28 +193,34 @@ public class Companions {
         Location head = c.getLocation().add(0, 0.8, 0);
         if (food > 0) {
             if (d.hunger >= 100) { p.sendActionBar(Msg.c("&e" + d.name + " đã no căng rồi!")); return; }
+            boolean hungry = d.hunger < 70;
             if (hand.getAmount() <= 1) p.getInventory().setItemInMainHand(null);
             else hand.setAmount(hand.getAmount() - 1);
             d.hunger = Math.min(100, d.hunger + food);
-            d.mood = Math.min(100, d.mood + 3);
-            pl.giveXp(p, d, 1);
+            d.starveSince = 0;
+            d.mood = Math.min(100, d.mood + 2);
+            if (hungry) pl.giveXp(p, d, 1);
             pl.store().save();
-            c.getWorld().spawnParticle(Particle.HEART, head, 3, 0.2, 0.1, 0.2, 0);
+            c.getWorld().spawnParticle(Particle.HEART, head, 2, 0.2, 0.1, 0.2, 0);
             c.getWorld().playSound(c.getLocation(), Sound.ENTITY_GENERIC_EAT, 0.8f, 1.3f);
             c.customName(Msg.c(label(d, p)));
             p.sendActionBar(Msg.c("&a" + d.name + " ăn ngon lành! Độ no: &f" + d.hunger + "/100"));
             return;
         }
+        // vuốt ve: hồi chiêu dài, hiệu quả nhỏ, không có kinh nghiệm
         long now = System.currentTimeMillis();
-        if (now - lastPet.getOrDefault(p.getUniqueId(), 0L) < 4000L) return;
+        long cd = pl.getConfig().getLong("pet.cooldown-seconds", 45) * 1000L;
+        long left = cd - (now - lastPet.getOrDefault(p.getUniqueId(), 0L));
+        if (left > 0) {
+            p.sendActionBar(Msg.c("&7" + d.name + " đang thư giãn, đợi &f" + (left / 1000 + 1) + "s &7nữa nhé."));
+            return;
+        }
         lastPet.put(p.getUniqueId(), now);
-        d.mood = Math.min(100, d.mood + 5);
-        pl.giveXp(p, d, 1);
+        d.mood = Math.min(100, d.mood + 4);
         pl.store().save();
-        c.getWorld().spawnParticle(Particle.HEART, head, 6, 0.3, 0.2, 0.3, 0);
+        c.getWorld().spawnParticle(Particle.HEART, head, 3, 0.3, 0.2, 0.3, 0);
         c.getWorld().playSound(c.getLocation(), Sound.ENTITY_CHICKEN_AMBIENT, 1f, 1.5f);
-        c.setVelocity(new Vector(0, 0.4, 0));
-        p.sendActionBar(Msg.c("&d" + d.name + " thích thú kêu cục tác! Tâm trạng: &f" + d.mood + "/100"));
+        p.sendActionBar(Msg.c("&d" + d.name + " thích thú! Tâm trạng: &f" + d.mood + "/100"));
     }
 
     // ----- vòng lặp chính -----
@@ -270,7 +291,7 @@ public class Companions {
             }
 
             // hiệu ứng vui
-            if (ticks % 10 == 0 && d.mood >= 80) {
+            if (ticks % 30 == 0 && d.mood >= 90) {
                 c.getWorld().spawnParticle(Particle.HEART, c.getLocation().add(0, 0.9, 0), 1, 0.2, 0.1, 0.2, 0);
             }
             if (d.rarity == Rarity.HUYEN_THOAI && ticks % 2 == 0) {
@@ -288,8 +309,13 @@ public class Companions {
                 c.customName(Msg.c(label(d, owner)));
             }
             if (ticks % 600 == 0) {
-                d.mood = Math.min(100, d.mood + 2);
-                pl.giveXp(owner, d, 3);
+                Location lp = lastPos.get(u);
+                Location cur = owner.getLocation();
+                if (lp != null && lp.getWorld() != null && lp.getWorld().equals(cur.getWorld()) && lp.distance(cur) >= 30) {
+                    d.mood = Math.min(100, d.mood + 2);
+                    pl.giveXp(owner, d, 3);
+                }
+                lastPos.put(u, cur.clone());
                 pl.store().save();
             }
         }

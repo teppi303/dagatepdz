@@ -1,10 +1,17 @@
 package vn.daga;
 
+import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 public class DataStore {
@@ -25,6 +32,8 @@ public class DataStore {
     private final Map<UUID, Stat> stats = new HashMap<>();
     private final Map<UUID, List<ChickenData>> coops = new HashMap<>();
     private final Map<UUID, String> active = new HashMap<>();
+    private boolean dirty = false;
+    private BukkitTask pendingSave;
 
     public DataStore(DaGaPlugin plugin) {
         this.plugin = plugin;
@@ -33,6 +42,13 @@ public class DataStore {
 
     public void load() {
         plugin.getDataFolder().mkdirs();
+        if (file.exists()) {
+            try {
+                Files.copy(file.toPath(), new File(plugin.getDataFolder(), "data.yml.bak").toPath(), StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException ex) {
+                plugin.getLogger().warning("Không tạo được bản sao lưu data.yml.bak: " + ex.getMessage());
+            }
+        }
         YamlConfiguration y = YamlConfiguration.loadConfiguration(file);
         ConfigurationSection s = y.getConfigurationSection("inc");
         if (s != null) {
@@ -89,7 +105,51 @@ public class DataStore {
         }
     }
 
+    /** Đánh dấu cần lưu; thật sự ghi file sau ~3 giây (gộp nhiều thay đổi liên tiếp). */
     public void save() {
+        dirty = true;
+        if (!plugin.isEnabled()) { flushNow(); return; }
+        if (pendingSave == null) {
+            pendingSave = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                pendingSave = null;
+                flush(false);
+            }, 60L);
+        }
+    }
+
+    /** Ghi ngay (dùng khi tắt plugin). */
+    public void flushNow() {
+        if (pendingSave != null) {
+            pendingSave.cancel();
+            pendingSave = null;
+        }
+        flush(true);
+    }
+
+    private void flush(boolean sync) {
+        if (!dirty) return;
+        dirty = false;
+        final String data = build().saveToString();
+        if (sync || !plugin.isEnabled()) write(data);
+        else Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> write(data));
+    }
+
+    private synchronized void write(String data) {
+        Path target = file.toPath();
+        Path tmp = target.resolveSibling("data.yml.tmp");
+        try {
+            Files.writeString(tmp, data, StandardCharsets.UTF_8);
+            try {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException ex) {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException ex) {
+            plugin.getLogger().warning("Không lưu được data.yml: " + ex.getMessage());
+        }
+    }
+
+    private YamlConfiguration build() {
         YamlConfiguration y = new YamlConfiguration();
         for (Map.Entry<UUID, List<Slot>> e : inc.entrySet()) {
             int i = 0;
@@ -116,11 +176,7 @@ public class DataStore {
         for (Map.Entry<UUID, String> e : active.entrySet()) {
             y.set("active." + e.getKey(), e.getValue());
         }
-        try {
-            y.save(file);
-        } catch (IOException ex) {
-            plugin.getLogger().warning("Không lưu được data.yml: " + ex.getMessage());
-        }
+        return y;
     }
 
     // ----- chuồng gà -----
@@ -136,11 +192,13 @@ public class DataStore {
         List<ChickenData> l = coop(u);
         String id = active.get(u);
         if (id != null) {
-            for (ChickenData d : l) if (d.id.equals(id)) return d;
+            for (ChickenData d : l) if (d.id.equals(id) && !d.grave()) return d;
         }
-        if (!l.isEmpty()) {
-            active.put(u, l.get(0).id);
-            return l.get(0);
+        for (ChickenData d : l) {
+            if (!d.grave()) {
+                active.put(u, d.id);
+                return d;
+            }
         }
         return null;
     }

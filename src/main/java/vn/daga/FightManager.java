@@ -28,6 +28,16 @@ public class FightManager {
     private final Map<UUID, Long> sparCd = new HashMap<>();
     private final Map<UUID, Long> wildCd = new HashMap<>();
     private final Set<UUID> busyEnts = new HashSet<>();
+    private final Map<String, Long> pairCd = new HashMap<>();
+
+    private static String fmt(double v) {
+        return String.valueOf((long) v);
+    }
+
+    private static String pairKey(Player a, Player b) {
+        String x = a.getUniqueId().toString(), y = b.getUniqueId().toString();
+        return x.compareTo(y) < 0 ? x + "|" + y : y + "|" + x;
+    }
 
     public FightManager(DaGaPlugin plugin) {
         this.plugin = plugin;
@@ -122,6 +132,7 @@ public class FightManager {
         if (from.equals(to)) { Msg.send(from, "&cKhông thể tự thách đấu chính mình."); return; }
         if (!to.isOnline()) { Msg.send(from, "&cNgười đó đã thoát game."); return; }
         if (inMatch(from) || inMatch(to)) { Msg.send(from, "&cMột trong hai người đang trong trận."); return; }
+        if (pending.containsKey(to.getUniqueId())) { Msg.send(from, "&cNgười này đang có một lời thách đấu khác, đợi chút nhé."); return; }
         String err = check(chickenOf(from), "bạn");
         if (err != null) { Msg.send(from, "&c" + err); return; }
         if (bet > 0) {
@@ -129,13 +140,13 @@ public class FightManager {
             if (h == null) { Msg.send(from, "&cServer chưa có economy (Vault), chỉ đấu không cược được."); return; }
             double min = plugin.getConfig().getDouble("bet.min", 100);
             double max = plugin.getConfig().getDouble("bet.max", 1000000);
-            if (bet < min || bet > max) { Msg.send(from, "&cTiền cược phải từ " + min + " đến " + max + "."); return; }
+            if (bet < min || bet > max) { Msg.send(from, "&cTiền cược phải từ " + fmt(min) + " đến " + fmt(max) + "."); return; }
             if (!h.has(from, bet)) { Msg.send(from, "&cBạn không đủ tiền cược."); return; }
         }
         Challenge ch = new Challenge(from.getUniqueId(), bet);
         pending.put(to.getUniqueId(), ch);
-        Msg.send(from, "&eĐã gửi thách đấu tới &f" + to.getName() + (bet > 0 ? " &evới cược &6" + bet : "") + "&e.");
-        to.sendMessage(Msg.c(Msg.PREFIX + "&f" + from.getName() + " &ethách đấu gà" + (bet > 0 ? " với cược &6" + bet : "") + "&e! ")
+        Msg.send(from, "&eĐã gửi thách đấu tới &f" + to.getName() + (bet > 0 ? " &evới cược &6" + fmt(bet) : "") + "&e.");
+        to.sendMessage(Msg.c(Msg.PREFIX + "&f" + from.getName() + " &ethách đấu gà" + (bet > 0 ? " với cược &6" + fmt(bet) : "") + "&e! ")
                 .append(Msg.c("&a&l[CHẤP NHẬN]").clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/daga chapnhan")))
                 .append(Msg.c(" "))
                 .append(Msg.c("&c&l[TỪ CHỐI]").clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/daga tuchoi"))));
@@ -387,7 +398,14 @@ public class FightManager {
             say("&6&l=== " + (borrowed ? "GÀ CỦA BẠN ĐẤU GÀ LÀNG" : spar ? "ĐẤU THỬ VỚI GÀ MÁY" : "TRẬN ĐÁ GÀ") + " ===");
             say(p[0].getName() + " &7(" + c[0].rarity.color + c[0].name + "&7) &cVS &f"
                     + (spar ? "" : p[1].getName() + " ") + "&7(" + c[1].rarity.color + c[1].name + "&7)");
-            if (bet > 0) say("&7Tiền cược mỗi bên: &6" + bet);
+            if (bet > 0) say("&7Tiền cược mỗi bên: &6" + fmt(bet));
+            if (!spar) {
+                announce("&6[Đá gà] &f" + p[0].getName() + " &7vs &f" + p[1].getName() + (bet > 0 ? " &7- cược &6" + fmt(bet) : "") + " &7đang đấu gần bạn!");
+                long bmin = plugin.getConfig().getLong("fight.broadcast-min-bet", 5000);
+                if (bet > 0 && bmin > 0 && bet >= bmin) {
+                    Bukkit.broadcast(Msg.c("&6[Đá gà] &f" + p[0].getName() + " &7và &f" + p[1].getName() + " &7đang đấu gà với tiền cược &6" + fmt(bet) + " &7mỗi bên!"));
+                }
+            }
             if (spar) say("&7Gà không chết, không bị thương, chỉ tốn thể lực" + (borrowed ? " (10)." : " (20)."));
             sound(Sound.ENTITY_CHICKEN_AMBIENT, 1f, 0.8f);
             long delay = Math.max(40L, plugin.getConfig().getLong("fight.round-delay-ticks", 50L));
@@ -400,7 +418,6 @@ public class FightManager {
                 if (x != null && !x.isOnline()) { finish(x.equals(p[0]) ? 1 : 0, true); return; }
             }
             round++;
-            say("&8—— &eHiệp " + round + " &8——");
             double sa = c[0].spd() * (0.8 + rnd.nextDouble() * 0.4);
             double sb = c[1].spd() * (0.8 + rnd.nextDouble() * 0.4);
             final int first = sa >= sb ? 0 : 1;
@@ -410,16 +427,16 @@ public class FightManager {
                 if (over) return;
                 strike(1 - first);
                 if (checkDeath()) return;
-                say("&7" + c[0].name + " " + bar(0) + " &8| &7" + c[1].name + " " + bar(1));
+                status();
                 if (round >= plugin.getConfig().getInt("fight.max-rounds", 30)) {
-                    finish(hp[0] / max[0] >= hp[1] / max[1] ? 0 : 1, false);
+                    finish(leader(), false);
                 }
             }, 20L);
         }
 
         boolean checkDeath() {
             if (hp[0] <= 0 || hp[1] <= 0) {
-                say("&7" + c[0].name + " " + bar(0) + " &8| &7" + c[1].name + " " + bar(1));
+                status();
                 finish(hp[0] <= 0 ? 1 : 0, false);
                 return true;
             }
@@ -456,7 +473,7 @@ public class FightManager {
             if (rnd.nextDouble() < dodge) {
                 lunge(i);
                 if (valid(j)) ents[j].getWorld().spawnParticle(Particle.CLOUD, ents[j].getLocation().add(0, 0.3, 0), 8, 0.2, 0.1, 0.2, 0.02);
-                say("&e" + at.name + " &7ra đòn trượt, &e" + df.name + " &7né được!");
+                say("&8[H" + round + "] &e" + at.name + " &7ra đòn trượt, &e" + df.name + " &7né được!");
                 return;
             }
             double dmg = at.effAtk() * (0.8 + rnd.nextDouble() * 0.4) - df.effDef() * 0.4;
@@ -467,7 +484,8 @@ public class FightManager {
             lunge(i);
             hurtFx(j, crit);
             updateTag(j);
-            say("&e" + at.name + " &7" + VERBS[rnd.nextInt(VERBS.length)] + " &e" + df.name + " &c-" + d + (crit ? " &6&lCHÍ MẠNG!" : ""));
+            status();
+            say("&8[H" + round + "] &e" + at.name + " &7" + VERBS[rnd.nextInt(VERBS.length)] + " &e" + df.name + " &c-" + d + (crit ? " &6&lCHÍ MẠNG!" : ""));
             sound(Sound.ENTITY_CHICKEN_HURT, 1f, crit ? 0.7f : 1.1f);
         }
 
@@ -479,6 +497,27 @@ public class FightManager {
                 sb.append("█");
             }
             return sb + " &f" + (int) hp[i];
+        }
+
+        void status() {
+            Component line = Msg.c("&e" + c[0].name + " " + bar(0) + " &8| &e" + c[1].name + " " + bar(1));
+            for (Player x : p) if (x != null) x.sendActionBar(line);
+        }
+
+        int leader() {
+            double a = hp[0] / max[0], b = hp[1] / max[1];
+            if (Math.abs(a - b) < 1e-9) return rnd.nextInt(2);
+            return a > b ? 0 : 1;
+        }
+
+        /** Báo cho người đứng xem gần đó (trong 30 block). */
+        void announce(String msg) {
+            World w = spots[0].getWorld();
+            if (w == null) return;
+            for (Player x : w.getPlayers()) {
+                if (x == p[0] || x == p[1]) continue;
+                if (x.getLocation().distanceSquared(spots[0]) <= 900) Msg.raw(x, msg);
+            }
         }
 
         void kill(int i) {
@@ -510,6 +549,11 @@ public class FightManager {
             int l = 1 - w;
             if (spar) { finishSpar(w, forfeit); return; }
             boolean died = hp[l] <= 0 || forfeit;
+            long nowMs = System.currentTimeMillis();
+            long afMs = plugin.getConfig().getLong("fight.antifarm-minutes", 10) * 60000L;
+            String pk = pairKey(p[0], p[1]);
+            boolean farm = afMs > 0 && nowMs - pairCd.getOrDefault(pk, 0L) < afMs;
+            pairCd.put(pk, nowMs);
             double prize = 0;
             VaultHook h = plugin.hook();
             if (bet > 0 && h != null) {
@@ -519,19 +563,23 @@ public class FightManager {
                 h.deposit(p[w], prize);
             }
             say("&6&l★ " + p[w].getName() + " THẮNG" + (forfeit ? " &7(đối thủ bỏ cuộc)" : "") + " &6&l★");
+            announce("&6[Đá gà] &f" + p[w].getName() + " &7đã thắng &f" + p[l].getName() + (bet > 0 ? " &7và nhận &6" + fmt(bet * 2) : "") + "&7!");
             if (died) say("&4☠ &c" + c[l].name + " đã gục ngã!");
-            if (prize > 0) Msg.raw(p[w], Msg.PREFIX + "&aBạn nhận được &6" + prize + " &7(đã trừ thuế sàn).");
+            if (farm) say("&7(Đấu liên tiếp cùng một đối thủ: không nhận kinh nghiệm, trứng thưởng và không tính xếp hạng.)");
+            if (prize > 0) Msg.raw(p[w], Msg.PREFIX + "&aBạn nhận được &6" + fmt(prize) + " &7(đã trừ thuế sàn).");
             if (died) kill(l);
             if (valid(w)) {
                 ents[w].getWorld().spawnParticle(Particle.HEART, ents[w].getLocation().add(0, 1, 0), 8, 0.3, 0.3, 0.3, 0);
             }
-            apply(p[w], c[w], true, false, hp[w] / max[w]);
-            apply(p[l], c[l], false, died, hp[l] / max[l]);
+            apply(p[w], c[w], true, false, hp[w] / max[w], farm);
+            apply(p[l], c[l], false, died, hp[l] / max[l], farm);
             plugin.store().save();
-            plugin.store().addResult(p[w].getUniqueId(), p[w].getName(), true, prize);
-            plugin.store().addResult(p[l].getUniqueId(), p[l].getName(), false, 0);
+            if (!farm) {
+                plugin.store().addResult(p[w].getUniqueId(), p[w].getName(), true, prize);
+                plugin.store().addResult(p[l].getUniqueId(), p[l].getName(), false, 0);
+            }
             p[w].playSound(p[w].getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 1f);
-            if (rnd.nextDouble() < plugin.getConfig().getDouble("win-egg-chance", 0.08)) {
+            if (!farm && rnd.nextDouble() < plugin.getConfig().getDouble("win-egg-chance", 0.08)) {
                 DaGaPlugin.give(p[w], Eggs.wild(1));
                 Msg.send(p[w], "&5Phần thưởng hiếm: bạn nhận được 1 Trứng Cổ Đại!");
             }
@@ -578,9 +626,9 @@ public class FightManager {
         }
     }
 
-    private void apply(Player pl, ChickenData d, boolean win, boolean died, double hpPct) {
+    private void apply(Player pl, ChickenData d, boolean win, boolean died, double hpPct, boolean farm) {
         d.refresh();
-        plugin.giveXp(pl, d, win ? 40 : (died ? 10 : 15));
+        if (!farm) plugin.giveXp(pl, d, win ? 40 : (died ? 10 : 15));
         long now = System.currentTimeMillis();
         d.sta = Math.max(0, d.sta - (win ? 15 : 35));
         d.hunger = Math.max(0, d.hunger - 10);

@@ -26,7 +26,7 @@ public class DaGaCommand implements CommandExecutor, TabCompleter {
         if (sub.equals("reload") || sub.equals("give")) {
             if (!s.hasPermission("daga.admin")) { Msg.send(s, "&cBạn không có quyền."); return true; }
             if (sub.equals("reload")) {
-                pl.reloadConfig();
+                pl.reloadAll();
                 Msg.send(s, "&aĐã tải lại config.");
             } else {
                 give(s, a);

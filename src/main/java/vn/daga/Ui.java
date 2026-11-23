@@ -2,6 +2,7 @@ package vn.daga;
 
 import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
+import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
@@ -20,6 +21,8 @@ public final class Ui {
             for (String s : lore) l.add(Msg.c(s));
             meta.lore(l);
         }
+        // ẩn dòng thuộc tính (kiếm, khiên...) và hiệu ứng cho menu gọn gàng
+        meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_ADDITIONAL_TOOLTIP);
         it.setItemMeta(meta);
         return it;
     }
@@ -43,5 +46,16 @@ public final class Ui {
 
     public static ItemStack pane() {
         return icon(Material.BLACK_STAINED_GLASS_PANE, " ");
+    }
+
+    /** Thanh tiến độ 10 ô, ví dụ ███░░░░░░░ */
+    public static String bar(int value, int max) {
+        int filled = max <= 0 ? 0 : (int) Math.round(10.0 * Math.max(0, Math.min(value, max)) / max);
+        StringBuilder sb = new StringBuilder("&8[&a");
+        for (int i = 0; i < 10; i++) {
+            if (i == filled) sb.append("&7");
+            sb.append("█");
+        }
+        return sb.append("&8]").toString();
     }
 }

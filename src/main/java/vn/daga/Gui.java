@@ -22,6 +22,7 @@ public class Gui {
     private final Set<UUID> renaming = ConcurrentHashMap.newKeySet();
     private final Map<UUID, String> breedSel = new HashMap<>();
 
+    private static final int[] TOP_SLOTS = {10, 11, 12, 13, 14, 15, 16, 19, 20, 21};
     private static final Material[] SEEDS = {Material.WHEAT_SEEDS, Material.BEETROOT_SEEDS, Material.MELON_SEEDS, Material.PUMPKIN_SEEDS};
 
     public Gui(DaGaPlugin pl) {
@@ -122,7 +123,8 @@ public class Gui {
         m.set(24, Ui.icon(Material.ARMOR_STAND, "&b&lĐấu thử gà máy", "&7Luyện tập một mình, không sợ chết,", "&7có thưởng khi thắng.", "", "&aBấm để mở"), e -> openSpar(p));
         m.set(25, Ui.icon(Material.GOLD_INGOT, "&6&lBảng xếp hạng", "&7Top người chơi thắng nhiều nhất.", "", "&aBấm để mở"), e -> openTop(p));
         m.set(37, Ui.icon(Material.EMERALD, "&a&lCửa hàng", "&7Mua thức ăn và trứng.", pl.hook() == null ? "&cServer chưa có economy" : "&aBấm để mở"), e -> openShop(p));
-        m.set(40, Ui.icon(Material.BOOK, "&f&lHướng dẫn", "&7Cách chơi từ A đến Z.", "", "&aBấm để mở"), e -> openHelp(p));
+        ItemStack helpIcon = Ui.icon(Material.BOOK, "&f&lHướng dẫn", "&7Cách chơi từ A đến Z.", d == null ? "&eMới chơi? Bấm vào đây trước nhé!" : "", "&aBấm để mở");
+        m.set(40, d == null ? Ui.glow(helpIcon) : helpIcon, e -> openHelp(p));
         if (p.hasPermission("daga.admin")) {
             m.set(43, Ui.icon(Material.COMMAND_BLOCK, "&4&lBảng Admin", "&7Lấy gà, trứng, đồ test,", "&7đấu thử, chỉnh sàn đấu...", "", "&aBấm để mở"), e -> openAdmin(p));
         }
@@ -142,6 +144,10 @@ public class Gui {
             if (i >= cap) { m.set(i, Ui.icon(Material.RED_STAINED_GLASS_PANE, "&cChỗ bị khóa"), null); continue; }
             if (i < list.size()) {
                 final ChickenData d = list.get(i);
+                if (d.grave()) {
+                    m.set(i, graveIcon(d), e -> graveClick(p, m, d, e.getClick()));
+                    continue;
+                }
                 d.refresh();
                 boolean isAct = d == act;
                 ItemStack it = Ui.withExtraLore(d.toItem(), "", isAct ? "&a▶ ĐANG LÀ GÀ CHIẾN" : "&eChuột trái: chọn làm gà chiến", "&7Chuột phải: rút ra thành vật phẩm");
@@ -164,13 +170,69 @@ public class Gui {
                 m.set(i, Ui.icon(Material.LIGHT_GRAY_STAINED_GLASS_PANE, "&7Ô trống"), null);
             }
         }
-        m.set(45, Ui.icon(Material.PAPER, "&fChuồng: &e" + list.size() + "&7/&e" + cap, "&7Mở rộng bằng cách chỉnh coop.slots trong config."), null);
+        m.set(45, Ui.icon(Material.PAPER, "&fChuồng: &e" + list.size() + "&7/&e" + cap, "&7Mộ gà cũng chiếm 1 ô: dọn mộ để lấy lại chỗ.", "&7Mở rộng chuồng: chỉnh coop.slots trong config."), null);
         m.set(48, Ui.icon(Material.CHEST, "&bGửi tất cả gà trong túi vào chuồng", "&7Hoặc chuột phải vào gà (vật phẩm) cũng được."), e -> {
             int n = depositAll(p);
             Msg.send(p, n > 0 ? "&aĐã gửi " + n + " gà vào chuồng." : "&7Không có gà nào trong túi để gửi (hoặc chuồng đã đầy).");
             m.refresh();
         });
         back(m, 49, p);
+    }
+
+    // ----- mộ gà (gà chết vì bị bỏ đói) -----
+    private Material reviveMaterial() {
+        String n = pl.getConfig().getString("neglect.revive-item", "TOTEM_OF_UNDYING");
+        if (n == null || n.equalsIgnoreCase("NONE")) return null;
+        return Material.matchMaterial(n);
+    }
+
+    private ItemStack graveIcon(ChickenData d) {
+        Material rv = reviveMaterial();
+        List<String> lore = new ArrayList<>(d.epitaph());
+        lore.add("");
+        lore.add("&eChuột trái: đọc bia mộ trong chat");
+        if (rv != null) lore.add("&dChuột phải: hồi sinh (cần 1 " + rv.name().toLowerCase().replace('_', ' ') + ", mất 2 cấp)");
+        lore.add("&cShift + chuột trái: dọn mộ (xóa vĩnh viễn)");
+        return Ui.icon(Material.SKELETON_SKULL, "&8☠ Mộ của " + d.name, lore.toArray(new String[0]));
+    }
+
+    private void graveClick(Player p, Menu m, ChickenData d, ClickType click) {
+        if (busy(p)) return;
+        if (click == ClickType.SHIFT_LEFT) {
+            st().removeChicken(p.getUniqueId(), d);
+            Msg.send(p, "&7Bạn đã dọn mộ của &f" + d.name + "&7. Ô chuồng đã trống.");
+            m.refresh();
+            return;
+        }
+        if (click == ClickType.RIGHT || click == ClickType.SHIFT_RIGHT) {
+            Material rv = reviveMaterial();
+            if (rv == null) { Msg.send(p, "&cServer đã tắt hồi sinh gà từ mộ."); return; }
+            if (!take(p, rv)) {
+                Msg.send(p, "&cCần 1 " + rv.name().toLowerCase().replace('_', ' ') + " trong túi để hồi sinh gà từ mộ.");
+                return;
+            }
+            long now = System.currentTimeMillis();
+            d.graveAt = 0;
+            d.graveCause = "";
+            d.starveSince = 0;
+            d.warned = 0;
+            d.hunger = 30;
+            d.mood = 20;
+            d.sta = d.maxSta / 2;
+            d.level = Math.max(1, d.level - 2);
+            d.xp = 0;
+            d.deadUntil = 0;
+            d.weakUntil = now + 30 * 60000L;
+            d.hungerStamp = now;
+            d.staStamp = now;
+            d.moodStamp = now;
+            st().save();
+            Msg.send(p, "&d✦ &f" + d.name + " &dđã hồi sinh từ mộ! Gà còn rất yếu (30 phút), mất 2 cấp. Nhớ cho nó ăn nhé!");
+            p.getWorld().playSound(p.getLocation(), org.bukkit.Sound.ITEM_TOTEM_USE, 0.6f, 1.2f);
+            m.refresh();
+            return;
+        }
+        for (String l : d.epitaph()) Msg.raw(p, l);
     }
 
     private int depositAll(Player p) {
@@ -216,7 +278,7 @@ public class Gui {
 
         m.set(27, Ui.icon(Material.PAPER, "&e&lNGHỈ NGƠI & KHÁC"), null);
         m.set(28, Ui.icon(Material.HAY_BLOCK, "&aNghỉ ngơi", "&7Hồi 25 thể lực,", "&7đứng gần bó rơm (chuồng gà) hồi 60.", "&8Bấm để nghỉ"), e -> rest(p, m));
-        m.set(29, Ui.icon(Material.COOKIE, "&dVuốt ve", "&7+10 tâm trạng (từ 70 trở lên", "&7gà đánh mạnh hơn 5%).", "&8Bấm để vuốt ve"), e -> pet(p, m));
+        m.set(29, Ui.icon(Material.COOKIE, "&dVuốt ve", "&7+6 tâm trạng (có hồi chiêu).", "&7Tâm trạng từ 70: gà đánh mạnh hơn 5%.", "&8Bấm để vuốt ve"), e -> pet(p, m));
         m.set(30, Ui.icon(Material.GOLDEN_CARROT, "&cChữa thương", "&7Tốn 1 cà rốt vàng.", d.injured() ? "&4Gà đang bị thương!" : "&7Gà không bị thương.", "&8Bấm để chữa"), e -> cure(p, m));
         m.set(31, Ui.icon(Material.GOLDEN_APPLE, "&6Hồi sinh ngay", "&7Tốn 1 táo vàng, gà vẫn yếu một lúc.", d.dead() ? "&4Gà đã chết!" : "&7Gà còn sống.", "&8Bấm để hồi sinh"), e -> revive(p, m));
         m.set(32, Ui.icon(Material.NAME_TAG, "&fĐổi tên", "&7Gõ tên mới vào chat.", "&8Bấm để đổi"), e -> { p.closeInventory(); startRename(p); });
@@ -242,14 +304,16 @@ public class Gui {
         if (d.dead()) { Msg.send(p, "&cGà đã chết, không ăn được."); return; }
         if (d.hunger >= 100) { Msg.send(p, "&eGà đã no căng rồi."); return; }
         if (!take(p, mats)) { Msg.send(p, "&cBạn không có thức ăn này trong túi."); return; }
+        boolean wasHungry = d.hunger < 70;
         d.hunger = Math.min(100, d.hunger + value);
-        d.mood = Math.min(100, d.mood + 3);
+        d.starveSince = 0;
+        d.mood = Math.min(100, d.mood + 2);
         String extra = "";
         if (mats.length == 1 && mats[0] == Material.GOLDEN_CARROT && rnd().nextDouble() < 0.25) {
             int s = rnd().nextInt(5);
             if (d.train(s)) extra = " &d(+1 " + ChickenData.STAT_NAMES[s] + ")";
         }
-        pl.giveXp(p, d, 1);
+        if (wasHungry) pl.giveXp(p, d, 1);
         st().save();
         Msg.send(p, "&aĐã cho gà ăn, độ no: &f" + d.hunger + "/100" + extra);
         m.refresh();
@@ -296,9 +360,8 @@ public class Gui {
         ChickenData d = active(p);
         if (d == null) return;
         if (d.dead()) { Msg.send(p, "&cGà đã chết."); return; }
-        if (onCooldown(p, "pet", 20)) return;
-        d.mood = Math.min(100, d.mood + 10);
-        pl.giveXp(p, d, 1);
+        if (onCooldown(p, "pet", pl.getConfig().getLong("pet.cooldown-seconds", 45))) return;
+        d.mood = Math.min(100, d.mood + 6);
         st().save();
         p.getWorld().spawnParticle(Particle.HEART, p.getLocation().add(0, 1.5, 0), 6, 0.3, 0.2, 0.3, 0);
         Msg.send(p, "&dBạn vuốt ve gà, tâm trạng: &f" + d.mood + "/100");
@@ -336,6 +399,16 @@ public class Gui {
     private void startRename(Player p) {
         renaming.add(p.getUniqueId());
         Msg.send(p, "&eGõ tên mới cho gà vào chat (tối đa 16 ký tự). Gõ &fhuy &eđể hủy.");
+    }
+
+    public void onMenuClose(Player p) {
+        breedSel.remove(p.getUniqueId());
+    }
+
+    public void clearState(Player p) {
+        breedSel.remove(p.getUniqueId());
+        renaming.remove(p.getUniqueId());
+        cds.keySet().removeIf(k -> k.startsWith(p.getUniqueId().toString()));
     }
 
     public boolean isRenaming(Player p) {
@@ -446,6 +519,10 @@ public class Gui {
         long now = System.currentTimeMillis();
         for (int i = 0; i < 45 && i < list.size(); i++) {
             final ChickenData d = list.get(i);
+            if (d.grave()) {
+                m.set(i, Ui.icon(Material.SKELETON_SKULL, "&8☠ Mộ của " + d.name, "&7Không thể ghép gen."), null);
+                continue;
+            }
             d.refresh();
             String status;
             if (d.dead()) status = "&4Đã chết";
@@ -564,14 +641,14 @@ public class Gui {
             int i = 0;
             for (DataStore.Stat s : top) {
                 Material mat = i == 0 ? Material.GOLD_BLOCK : i == 1 ? Material.IRON_BLOCK : i == 2 ? Material.COPPER_BLOCK : Material.PAPER;
-                m.set(i < 7 ? 9 + i : 11 + i, Ui.icon(mat, "&e#" + (i + 1) + " &f" + s.name,
+                m.set(TOP_SLOTS[i], Ui.icon(mat, "&e#" + (i + 1) + " &f" + s.name,
                         "&aThắng: &f" + s.wins, "&cThua: &f" + s.losses, "&6Tiền thắng: &f" + (long) s.earned), null);
                 i++;
             }
             DataStore.Stat me = st().statOf(p.getUniqueId());
             m.set(22, Ui.icon(Material.PLAYER_HEAD, "&bThành tích của bạn",
                     me == null ? "&7Chưa đấu trận nào" : "&aThắng: &f" + me.wins + " &8| &cThua: &f" + me.losses), null);
-            back(m, 18, p);
+            back(m, 26, p);
         }));
     }
 
@@ -663,11 +740,12 @@ public class Gui {
                 step(Material.HAY_BLOCK, "Nghỉ ngơi", "Hồi 25 thể lực.", "Đứng gần BÓ RƠM (chuồng gà)", "thì hồi tới 60.", "Có chờ vài phút giữa các lần."),
                 step(Material.COOKIE, "Vuốt ve", "Tăng tâm trạng.", "Tâm trạng từ 70 trở lên:", "đánh mạnh hơn 5%.", "Dưới 20: đánh yếu đi 10%."),
                 step(Material.GOLDEN_CARROT, "Chữa thương", "Gà bị thương thì không đấu được.", "Chữa bằng 1 cà rốt vàng", "(menu Chăm sóc → Chữa thương)."),
-                step(Material.NAME_TAG, "Đổi tên", "Bấm Đổi tên rồi gõ tên mới", "vào khung chat (tối đa 16 chữ).", "Gõ \"huy\" để hủy.")));
+                step(Material.NAME_TAG, "Đổi tên", "Bấm Đổi tên rồi gõ tên mới", "vào khung chat (tối đa 16 chữ).", "Gõ \"huy\" để hủy."),
+                step(Material.SKELETON_SKULL, "Đừng bỏ đói gà!", "Gà hết no (no = 0) mà 1 tuần", "không ai cho ăn (tính cả lúc offline)", "sẽ chết hẳn. Bạn offline thì gà", "không đói thêm.")));
 
         PAGES.put("pet", List.of(
                 step(Material.LEAD, "Gọi gà ra", "Menu chính → Mang gà đi theo bạn.", "Hoặc gõ /daga mang.", "Gà bạn đang chọn sẽ đi theo bạn."),
-                step(Material.COOKIE, "Chuột phải tay không", "= Vuốt ve gà.", "Có tim bay, gà kêu và nhảy lên,", "tăng tâm trạng."),
+                step(Material.COOKIE, "Chuột phải tay không", "= Vuốt ve gà.", "Có tim bay, gà kêu và nhảy lên,", "tăng tâm trạng. Có hồi chiêu ~45 giây", "nên không cần bấm liên tục."),
                 step(Material.WHEAT, "Cầm đồ ăn + chuột phải", "= Cho gà ăn ngay tại chỗ.", "(hạt, lúa mì, bánh mì,", "cà rốt vàng)"),
                 step(Material.CHEST, "Shift + chuột phải", "= Mở menu Chăm sóc."),
                 step(Material.IRON_SWORD, "Đá gà làng (lên cấp)", "Đứng gần 1 con gà bình thường", "ngoài đồng, Shift + chuột phải.", "Gà bạn lao vào đấu với nó.", "Thua không mất gì, không chết.", "Thắng có thể tăng chỉ số.", "Tốn 10 thể lực."),
@@ -696,6 +774,7 @@ public class Gui {
                 step(Material.SKELETON_SKULL, "Khi nào gà chết?", "Chỉ khi THUA trận đấu thật", "(thách đấu người chơi) mà", "hết máu.", "Đấu thử và đấu gà làng", "thì không bao giờ chết."),
                 step(Material.CLOCK, "Gà chết thì sao?", "Bị khóa 15 phút (mặc định):", "không đấu, tập, nghỉ, ghép được."),
                 step(Material.POTION, "Hồi sinh xong", "Gà còn YẾU 10 phút:", "mọi chỉ số chiến đấu giảm 20%."),
+                step(Material.WITHER_SKELETON_SKULL, "Chết vì bị bỏ đói", "Gà hết no (no = 0) mà 1 tuần", "không được cho ăn (tính cả lúc", "bạn offline) sẽ CHẾT HẲN.", "Bạn sẽ nhận cảnh báo trước đó.", "Gà để lại 1 ngôi MỘ ngay ô cũ", "trong Chuồng gà (có bia mộ ghi", "tên, cấp, chiến tích, ngày mất).", "&fChuột phải mộ&7: hồi sinh (1 Totem", "bất tử, mất 2 cấp, rất yếu 30 phút).", "&fShift + chuột trái&7: dọn mộ."),
                 step(Material.GOLDEN_APPLE, "Hồi sinh ngay", "Menu → Chăm sóc gà →", "Hồi sinh ngay.", "Tốn 1 táo vàng.", "Gà vẫn còn yếu 10 phút."),
                 step(Material.GOLDEN_CARROT, "Bị thương", "Thắng nhưng còn dưới 25% máu,", "hoặc thua nhẹ, gà có thể bị thương.", "Chữa bằng 1 cà rốt vàng.")));
 
@@ -786,7 +865,7 @@ public class Gui {
         m.set(19, Ui.icon(Material.GOLDEN_APPLE, "&aHồi đầy gà đang chọn", "&7Thể lực, no, tâm trạng 100,", "&7xóa chết/yếu/thương/cooldown ghép"), e -> {
             ChickenData d = st().active(p.getUniqueId());
             if (d == null) { Msg.send(p, "&cBạn chưa có gà chiến."); return; }
-            d.sta = d.maxSta; d.hunger = 100; d.mood = 100;
+            d.sta = d.maxSta; d.hunger = 100; d.mood = 100; d.starveSince = 0;
             d.deadUntil = 0; d.weakUntil = 0; d.injuredUntil = 0; d.breedReady = 0;
             st().save();
             Msg.send(p, "&aĐã hồi đầy " + d.name + ".");
@@ -807,7 +886,7 @@ public class Gui {
             pl.saveConfig();
             Msg.send(p, "&aĐã xóa sàn đấu.");
         });
-        m.set(24, Ui.icon(Material.COMPARATOR, "&7Nạp lại config", "&7Giống /daga reload"), e -> { pl.reloadConfig(); Msg.send(p, "&aĐã tải lại config."); });
+        m.set(24, Ui.icon(Material.COMPARATOR, "&7Nạp lại config", "&7Giống /daga reload"), e -> { pl.reloadAll(); Msg.send(p, "&aĐã tải lại config."); });
 
         m.set(27, Ui.icon(Material.PAPER, "&e&lĐẤU THỬ GÀ MÁY (không giới hạn)"), null);
         for (int i = 0; i < 4; i++) {
