@@ -2,15 +2,21 @@ package vn.daga;
 
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
+import org.bukkit.Color;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.Chicken;
+import org.bukkit.entity.Display;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.TextDisplay;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
 
@@ -246,6 +252,9 @@ public class FightManager {
         final Component[] oldName = new Component[2];
         final boolean[] oldVis = new boolean[2];
         boolean oldInvFoe;
+        final TextDisplay[] bars = new TextDisplay[2];     // thanh máu nổi trên đầu mỗi gà
+        BukkitTask followTask;
+        final boolean chatLog = plugin.getConfig().getBoolean("fight.chat-log", false);
         int round = 0;
         boolean over = false;
         BukkitTask task;
@@ -296,10 +305,7 @@ public class FightManager {
         void borrow() {
             for (int i = 0; i < 2; i++) {
                 if (!valid(i)) continue;
-                oldName[i] = ents[i].customName();
-                oldVis[i] = ents[i].isCustomNameVisible();
                 ents[i].setAI(false);
-                ents[i].setCustomNameVisible(true);
             }
             if (valid(1)) {
                 oldInvFoe = ents[1].isInvulnerable();
@@ -314,8 +320,6 @@ public class FightManager {
             for (int i = 0; i < 2; i++) {
                 if (!valid(i)) continue;
                 ents[i].setAI(true);
-                ents[i].customName(oldName[i]);
-                ents[i].setCustomNameVisible(oldVis[i]);
             }
             if (valid(1)) ents[1].setInvulnerable(oldInvFoe);
             busyEnts.remove(foeId);
@@ -338,7 +342,6 @@ public class FightManager {
             ch.setRemoveWhenFarAway(true);
             ch.setCollidable(false);
             ch.setAdult();
-            ch.setCustomNameVisible(true);
             ch.setGlowing(c[i].rarity == Rarity.HUYEN_THOAI);
             ch.getPersistentDataContainer().set(DaGaPlugin.FIGHT_KEY, PersistentDataType.BYTE, (byte) 1);
         }
@@ -366,6 +369,7 @@ public class FightManager {
         }
 
         void removeEnts() {
+            removeBars();
             if (borrowed) { restore(); return; }
             for (int i = 0; i < 2; i++) {
                 if (ents[i] != null && ents[i].isValid()) ents[i].remove();
@@ -380,9 +384,97 @@ public class FightManager {
             }
         }
 
+        /** Cập nhật thanh máu nổi và (với gà do plugin tạo) cả máu thật của thực thể cho khớp. */
         void updateTag(int i) {
+            updateBar(i);
+            syncHealth(i);
+        }
+
+        void syncHealth(int i) {
+            if (borrowed || !valid(i) || hp[i] <= 0) return;
+            AttributeInstance ai = ents[i].getAttribute(Attribute.MAX_HEALTH);
+            if (ai == null) return;
+            if (ai.getBaseValue() != 20.0) ai.setBaseValue(20.0);
+            double ratio = Math.max(0.0, Math.min(1.0, hp[i] / max[i]));
+            ents[i].setHealth(Math.max(0.5, 20.0 * ratio));
+        }
+
+        Location barLoc(int i) {
+            return ents[i].getLocation().add(0, 1.25, 0);
+        }
+
+        net.kyori.adventure.text.Component barText(int i) {
+            return Msg.c(c[i].rarity.color + "&l" + c[i].name + " &eLv." + c[i].level + "\n" + bar(i) + " &8(&f" + (int) Math.ceil(hp[i]) + "&7/" + (int) max[i] + "&8)");
+        }
+
+        void updateBar(int i) {
+            if (bars[i] != null && bars[i].isValid()) bars[i].text(barText(i));
+        }
+
+        void spawnBars() {
+            for (int i = 0; i < 2; i++) {
+                if (!valid(i)) continue;
+                final int idx = i;
+                try {
+                    bars[i] = ents[i].getWorld().spawn(barLoc(i), TextDisplay.class, td -> {
+                        td.setBillboard(Display.Billboard.CENTER);
+                        td.setDefaultBackground(false);
+                        td.setBackgroundColor(Color.fromARGB(0, 0, 0, 0));
+                        td.setShadowed(true);
+                        td.setPersistent(false);
+                        td.text(barText(idx));
+                    });
+                } catch (Exception ex) {
+                    bars[i] = null;
+                }
+            }
+            followTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+                for (int i = 0; i < 2; i++) {
+                    if (bars[i] != null && bars[i].isValid() && valid(i)) bars[i].teleport(barLoc(i));
+                }
+            }, 2L, 2L);
+        }
+
+        void removeBars() {
+            if (followTask != null) { followTask.cancel(); followTask = null; }
+            for (int i = 0; i < 2; i++) {
+                if (bars[i] != null && bars[i].isValid()) bars[i].remove();
+                bars[i] = null;
+            }
+        }
+
+        /** Chữ nổi bay lên ở chỗ con gà bị đánh: -15, CHÍ MẠNG, NÉ... */
+        void popup(int i, String text) {
             if (!valid(i)) return;
-            ents[i].customName(Msg.c(c[i].rarity.color + c[i].name + " " + bar(i)));
+            Location l = ents[i].getLocation().add((rnd.nextDouble() - 0.5) * 0.6, 1.7, (rnd.nextDouble() - 0.5) * 0.6);
+            try {
+                final TextDisplay td = l.getWorld().spawn(l, TextDisplay.class, t -> {
+                    t.setBillboard(Display.Billboard.CENTER);
+                    t.setDefaultBackground(false);
+                    t.setBackgroundColor(Color.fromARGB(0, 0, 0, 0));
+                    t.setShadowed(true);
+                    t.setPersistent(false);
+                    t.text(Msg.c(text));
+                });
+                new BukkitRunnable() {
+                    int t = 0;
+                    @Override
+                    public void run() {
+                        if (!td.isValid() || ++t > 22) {
+                            if (td.isValid()) td.remove();
+                            cancel();
+                            return;
+                        }
+                        td.teleport(td.getLocation().add(0, 0.05, 0));
+                    }
+                }.runTaskTimer(plugin, 1L, 1L);
+            } catch (Exception ignored) {
+                // không tạo được chữ nổi thì bỏ qua, trận vẫn chạy bình thường
+            }
+        }
+
+        void log(String m) {
+            if (chatLog) say(m);
         }
 
         void start() {
@@ -399,6 +491,7 @@ public class FightManager {
                 for (Player x : p) if (x != null) plugin.companions().pause(x);
                 spawnChickens();
             }
+            spawnBars();
             say("&6&l=== " + (borrowed ? "GÀ CỦA BẠN ĐẤU GÀ LÀNG" : spar ? "ĐẤU THỬ VỚI GÀ MÁY" : "TRẬN ĐÁ GÀ") + " ===");
             say(p[0].getName() + " &7(" + c[0].rarity.color + c[0].name + "&7) &cVS &f"
                     + (spar ? "" : p[1].getName() + " ") + "&7(" + c[1].rarity.color + c[1].name + "&7)");
@@ -477,7 +570,8 @@ public class FightManager {
             if (rnd.nextDouble() < dodge) {
                 lunge(i);
                 if (valid(j)) ents[j].getWorld().spawnParticle(Particle.CLOUD, ents[j].getLocation().add(0, 0.3, 0), 8, 0.2, 0.1, 0.2, 0.02);
-                say("&8[H" + round + "] &e" + at.name + " &7ra đòn trượt, &e" + df.name + " &7né được!");
+                popup(j, "&b&lNÉ!");
+                log("&8[H" + round + "] &e" + at.name + " &7ra đòn trượt, &e" + df.name + " &7né được!");
                 return;
             }
             double dmg = at.effAtk() * (0.8 + rnd.nextDouble() * 0.4) - df.effDef() * 0.4;
@@ -489,7 +583,8 @@ public class FightManager {
             hurtFx(j, crit);
             updateTag(j);
             status();
-            say("&8[H" + round + "] &e" + at.name + " &7" + VERBS[rnd.nextInt(VERBS.length)] + " &e" + df.name + " &c-" + d + (crit ? " &6&lCHÍ MẠNG!" : ""));
+            popup(j, crit ? "&6&l✦ -" + d + " CHÍ MẠNG ✦ &8⚔ &e" + at.name : "&c&l-" + d + " &8⚔ &e" + at.name);
+            log("&8[H" + round + "] &e" + at.name + " &7" + VERBS[rnd.nextInt(VERBS.length)] + " &e" + df.name + " &c-" + d + (crit ? " &6&lCHÍ MẠNG!" : ""));
             sound(Sound.ENTITY_CHICKEN_HURT, 1f, crit ? 0.7f : 1.1f);
         }
 
@@ -534,6 +629,7 @@ public class FightManager {
             e.setInvulnerable(false);
             e.getWorld().spawnParticle(Particle.CLOUD, e.getLocation().add(0, 0.4, 0), 25, 0.3, 0.3, 0.3, 0.05);
             e.damage(1000);
+            if (bars[i] != null && bars[i].isValid()) bars[i].text(Msg.c("&4☠ " + c[i].name));
         }
 
         void cleanupLater() {

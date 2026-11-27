@@ -8,6 +8,7 @@ challenge-timeout-seconds: 30
 
 fight:
   max-rounds: 30
+  chat-log: false               # true = in từng đòn đánh vào khung chat (mặc định tắt, chỉ hiện chữ nổi trên đầu gà)
   antifarm-minutes: 10          # đấu cùng 1 đối thủ liên tiếp trong khoảng này: không nhận XP/trứng/xếp hạng
   broadcast-min-bet: 5000       # cược từ mức này trở lên sẽ thông báo toàn server (0 = tắt)
   round-delay-ticks: 50         # 20 tick = 1 giây
